@@ -1,0 +1,79 @@
+[project]
+name = "local-shazam"
+dynamic = ["version"]
+description = "A CLI tool"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.6",
+    "structlog>=24.4",
+]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.120",
+    "mypy>=1.13",
+    "pip-audit>=2.7",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "pytest-xdist>=3.5",
+    "respx>=0.22",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+local-shazam = "local_shazam.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/local_shazam"]
+
+[tool.hatch.version]
+path = "src/local_shazam/__init__.py"
+
+[tool.ruff]
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I", "UP", "B", "SIM", "RUF", "PTH", "PERF", "S", "ASYNC",
+    "A", "C4", "DTZ", "PIE", "RET", "TCH", "ARG", "FURB",
+]
+ignore = ["E501", "S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106", "ARG001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["local_shazam"]
+
+[tool.mypy]
+mypy_path = "src"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+addopts = "-ra -q --strict-markers"
+markers = ["slow", "integration"]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
