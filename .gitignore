@@ -12,3 +12,4 @@ build/
 *.so
 .env
 .DS_Store
+data/*

@@ -1,0 +1,196 @@
+openapi: 3.1.0
+info:
+  title: local-shazam
+  description: Image transformation server that transforms images to match a song's visual aesthetic
+  version: 0.1.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns server health status
+      operationId: health_check
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /images:
+    put:
+      summary: Upload image
+      description: |
+        Upload an image to the store. The image will be analyzed with GPT-4o
+        and saved with its description in EXIF metadata.
+      operationId: upload_image
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image file (JPEG, PNG)
+      responses:
+        "200":
+          description: Image uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: Invalid image file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      summary: Get random image
+      description: Returns a random analyzed image from the store.
+      operationId: get_random_image
+      responses:
+        "200":
+          description: Random image returned
+          headers:
+            X-Image-ID:
+              description: UUID of the returned image
+              schema:
+                type: string
+                format: uuid
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: No images available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Transform image
+      description: |
+        Transform an image to match a song's visual aesthetic using a three-stage pipeline:
+        1. Lookup/fetch visual aesthetic for the song (cached in SQLite)
+        2. GPT-4o generates a Flux.2 prompt using aesthetic + image context
+        3. Flux.2 Klein 9B executes the image transformation
+      operationId: transform_image
+      parameters:
+        - name: image_id
+          in: query
+          required: true
+          description: UUID of a previously uploaded image
+          schema:
+            type: string
+            format: uuid
+        - name: song_title
+          in: query
+          required: true
+          description: Name of the song
+          schema:
+            type: string
+        - name: song_artists
+          in: query
+          required: true
+          description: Artist name(s)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transformed image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Image not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /aesthetic:
+    get:
+      summary: Get song aesthetic
+      description: |
+        Get the visual aesthetic description for a song. Uses a cache to avoid
+        repeated API calls. On cache miss, searches the web for visual aesthetic
+        information about the song and artist.
+      operationId: get_aesthetic
+      parameters:
+        - name: song_title
+          in: query
+          required: true
+          description: Name of the song
+          schema:
+            type: string
+        - name: artist
+          in: query
+          required: true
+          description: Artist name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Aesthetic description returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AestheticResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: healthy
+
+    UploadResponse:
+      type: object
+      required:
+        - image_id
+      properties:
+        image_id:
+          type: string
+          format: uuid
+          description: UUID assigned to the uploaded image
+          example: 550e8400-e29b-41d4-a716-446655440000
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: Invalid image file
+
+    AestheticResponse:
+      type: object
+      required:
+        - aesthetic
+      properties:
+        aesthetic:
+          type: string
+          description: Visual aesthetic description for the song
+          example: Vibrant neon colors with dark backgrounds, Y2K fashion influences...
