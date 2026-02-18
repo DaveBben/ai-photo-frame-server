@@ -2,6 +2,9 @@
 
 An image transformation server that applies a song's visual aesthetic to photos. Uses GPT-4o to analyze images and generate prompts, then Flux.2 Klein 9B for image-to-image transformation.
 
+You can find the client code which I have running on the Raspberry Pi 3B here:
+[https://github.com/DaveBben/ai-photo-frame-client](https://github.com/DaveBben/ai-photo-frame-client)
+
 Built in 2 days with heavy AI assistance. Expect rough edges.
 
 ## How it works
