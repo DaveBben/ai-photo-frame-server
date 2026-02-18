@@ -1,4 +1,4 @@
-# local-shazam
+# AI Photo Frame Server
 
 An image transformation server that applies a song's visual aesthetic to photos. Uses GPT-4o to analyze images and generate prompts, then Flux.2 Klein 9B for image-to-image transformation.
 
