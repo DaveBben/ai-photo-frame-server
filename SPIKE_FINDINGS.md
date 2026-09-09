@@ -500,6 +500,57 @@ Combined with F15, this is what the budget looks like:
 and quality indistinguishable from 4 steps. Drop to 2 steps only if the cold path
 (first play of a new song) must also fit inside 60s.
 
+## Spike environment left in place on `mini`
+
+Kept at the user's request as a reference for the official build. **Still throwaway —
+read it, do not evolve it.** Nothing here is production code.
+
+### Location and contents
+
+`~/spike/` — a uv project (Python 3.13, deps: `mflux`, `mlx-vlm`, `openai`, `pillow`).
+
+| File | What it is |
+|---|---|
+| `ai.py` | Capabilities A/B/C against the local VLM over the OpenAI wire format. The iTunes + album-art aesthetic lookup (F4) lives here. |
+| `pipeline.py` | End-to-end timed run. `uv run python pipeline.py test.jpg "<song>" "<artist>" [out_w] [steps] [ref]` |
+| `bench_flux.py` | First (contaminated) resolution sweep — see F11 for why its numbers are wrong |
+| `bench2.py` | Resident-model resolution benchmark |
+| `bench3.py` | Reference-size sweep — produced F15, the decisive finding |
+| `bench4.py` | Step-count sweep — produced F22 |
+| `describe_image.txt`, `flux_transform.txt`, `search_aesthetic.txt` | Copies of the production prompts, unmodified |
+| `test.jpg` | Stock 1024x1024 test portrait |
+| `ref_{256,384,512,768,1024}.jpg` | Pre-scaled references from the F15 sweep |
+
+Model cache in `~/.cache/huggingface/hub/`:
+
+| Model | Size | Status |
+|---|---|---|
+| `Runpod/FLUX.2-klein-4B-mflux-4bit` | 4.3G | in use |
+| `mlx-community/Qwen3-VL-4B-Instruct-4bit` | 2.9G | in use |
+| `mlx-community/Qwen3-VL-8B-Instruct-4bit` | 5.4G | **unused** — does not fit alongside Flux (F19). Safe to delete to reclaim 5.4G. |
+
+### The VLM server
+
+Running on port 8080, started with plain `nohup`:
+
+```
+cd ~/spike && nohup uv run python -m mlx_vlm.server \
+  --model mlx-community/Qwen3-VL-4B-Instruct-4bit --port 8080 > vlm.log 2>&1 &
+```
+
+**It will not survive a reboot** — there is no launchd job. The official build needs
+a real supervisor (launchd plist or a compose file) for this and for the diffusion
+process; see F13 for the three-process layout.
+
+### Reproducing the headline result
+
+```
+cd ~/spike
+uv run python pipeline.py test.jpg "bad guy" "Billie Eilish" 800 3 512
+```
+
+Expect roughly: A 16.5s, B 28.7s (or instant once cached), C 13.4s, D 25.1s.
+
 ## Dead ends
 
 * **`ai-server` flux-klein (F16).** The `sd-cuda:latest` image no longer exists on
