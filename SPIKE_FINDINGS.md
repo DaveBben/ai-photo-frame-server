@@ -218,6 +218,185 @@ first `generate_image` call.** Any timing that measures the constructor is measu
 nothing. This is why a resident model process matters: that ~52s is paid once at
 startup, not per request. Re-measured in F12 with the model warm and the box idle.
 
+### F13 — Shape of the integration (for the official build, not built here)
+
+Three processes on `mini`, all started by launchd or a compose file:
+
+| Process | Holds | Port |
+|---|---|---|
+| `mlx_vlm.server --model <vlm> --port 8080` | VLM, resident | 8080 |
+| local flux service (mflux `Flux2KleinEdit`, resident) | diffusion, resident | 8081 |
+| existing `local-shazam` FastAPI server | no models | 8000 |
+
+Keeping diffusion in its own process preserves the current architecture exactly:
+`Flux2Client` already talks HTTP to a remote generator, so it keeps doing that —
+only the host changes. It also means a wedged or leaking diffusion process can be
+recycled without dropping the API server.
+
+Changes required, by file:
+
+* **`config.py`** — add `openai_base_url`, `vlm_model`, `flux_base_url`. Drop the
+  requirement that `openai_api_key` / `bfl_api_key` be non-empty.
+* **`server.py`** — `_validate_settings` currently hard-fails when the two API keys
+  are missing. That check has to go or invert.
+* **`openai_client.py`** — pass `base_url=settings.openai_base_url` into
+  `AsyncOpenAI`. Replace the two hardcoded `model="gpt-4o"` literals with the
+  configured model name. `describe_image` and `chat` need no other change: the
+  message shapes they already build are what `mlx_vlm.server` accepts.
+* **`openai_client.search_aesthetic`** — the only real rewrite. Drop
+  `gpt-4o-search-preview`. Fetch iTunes metadata + cover art, then call `chat` with
+  the cover as an `image_url` block and the catalog data as text, against the
+  unchanged `search_aesthetic.txt` system prompt.
+* **`flux2_client.py`** — replace the BFL submit/poll/fetch dance with a single POST
+  to the local flux service returning PNG bytes. The 402/429 credit and rate-limit
+  branches become dead code and should be deleted.
+* **`image_transformer.py`** — pass the target size through so generation happens at
+  the panel's 800x480 (F8) instead of the model default 1024x1024.
+
+Deliberately unchanged: all three files in `prompts/`, `aesthetic_cache.py`,
+`process_images.py`, the EXIF metadata extraction, and every route signature. The
+prompts were written for Klein and GPT-4o and carry over as-is (F5).
+
+**Concurrency note:** mflux is synchronous and GPU-bound. If the official build ever
+inlines it into the FastAPI process instead of using a separate service, it must go
+through `anyio.to_thread.run_sync` or it will block the event loop for the whole
+generation.
+
+### F12 — Flux resident consumes essentially the whole 16GB box
+With only `Flux2KleinEdit` loaded and generating at 512x512, idle box, nothing
+else running:
+
+```
+15G used (7945M wired, 3160M compressor), 148M unused
+```
+
+**7.9GB wired** for a 4.3GB-on-disk 4-bit checkpoint, and 148MB unused. The
+warm 512x512 / 4-step generation took **63.6s** including weight load, with
+per-step cost settling at ~15s/step (18.1s, 16.0s, 15.4s across steps 1-3).
+
+Two consequences:
+
+1. **Per-step cost is real generation cost, not load cost.** The "52s fixed
+   overhead" inferred in F11 was wrong — steps 2 and 3 cost as much as step 1.
+2. **There is likely no room to co-resident a VLM.** Qwen3-VL-8B-4bit needs
+   ~5-6GB. 8 + 6 + ~3 for macOS exceeds 16GB. Either the VLM drops to a 4B
+   (~2.7GB), or the two models load and unload around each other, which costs
+   far more than the 60s budget allows.
+
+### F14 — `ai-server` already runs the exact 9B model the paid API uses
+Read-only inspection of `/home/dave/docker-compose/llama-swap/config.yaml`. **No
+changes made** — note there is a live `.config.yaml.swp`, so the file is open in an
+editor somewhere; do not write to it.
+
+GPU inventory:
+
+| GPU | Total | In use | Util |
+|---|---|---|---|
+| RTX 3090 Ti | 24564 MiB | 19927 MiB | 0% |
+| GTX 1660 SUPER | 6144 MiB | 4577 MiB | 0% |
+
+A `flux-klein` model is already defined and serving **`flux-2-klein-9b-Q8_0.gguf`**
+— the same Klein 9B the paid BFL endpoint runs, at Q8 — via `sd-server` from a
+local `sd-cuda:latest` image, with `--steps 4 --cfg-scale 1.0`, VAE
+`ae.safetensors`, and `Qwen3-8B-Q8_0.gguf` as the text encoder.
+
+It is aliased to `gpt-image-1`, `dall-e-2`, `dall-e-3`, `gpt-image-1-mini`,
+`gpt-image-1.5` and `flux`, and has `ttl: 120` — it unloads itself 120s after the
+last request.
+
+**This materially changes the fallback calculus.** The user's fallback #2 ("offload
+image gen to ai-server") is not a quality compromise at all: it is the *same model
+at higher precision* than anything the Mini can hold. The Mini's Klein 4B is the
+degraded option, not the server's 9B.
+
+Membership in the `gpu0` group with `swap: true` is the real cost: a generation
+request evicts whichever large LLM is resident on the 3090 Ti, then that model has
+to reload afterwards. `ttl: 120` bounds the occupancy window. GPU util was 0% at
+inspection time, so the eviction cost is reload latency for the user's other
+workloads, not contention.
+
+The server also already hosts `qwen-vl-30b` / `qwen3-vl-instruct` (GPU0) and a
+`qwen3.6-4b` on GPU1 that is marked `swap: false` and is never evicted.
+
+### F15 — **The reference image size, not the output size, dominates edit cost**
+This is the most important performance finding in the spike.
+
+`Flux2KleinEdit` encodes each reference image "at its own (aspect-preserved) size,
+not the output dims" and concatenates the resulting tokens into every transformer
+step. A 1024x1024 source photo therefore injects a large block of reference tokens
+into all 4 steps regardless of how small the output is.
+
+Output held constant at 800x480, 4 steps, warm model, only the reference downscaled:
+
+| Reference | Time | vs 1024 |
+|---|---|---|
+| 1024x1024 | 73.5s | baseline |
+| 768x768 | 54.8s | **-25%** |
+| 512x512 | 40.0s | **-46%** |
+
+Downscaling the input photo before handing it to the model is nearly free and cuts
+edit latency almost in half. **This alone moves the Mini from over-budget to
+under-budget.**
+
+Consequence for the official build: `process_images._prepare_image_for_api`
+currently thumbnails to 1024 for the OpenAI call. The local path wants a *separate*,
+smaller reference — around 512 on the long edge — fed to the diffusion step. Do not
+reuse the 1024 thumbnail for both.
+
+### F16 — DEAD END: `ai-server`'s flux-klein is broken, its image is gone
+Three `POST /v1/images/edits` requests to `flux-klein` via llama-swap all returned
+HTTP 500 in under 1.2s:
+
+```
+{"error":"unspecific error: upstream command exited prematurely","src":"llama-swap"}
+```
+
+Root cause found:
+
+```
+Unable to find image 'sd-cuda:latest' locally
+docker: Error response from daemon: pull access denied for sd-cuda
+```
+
+**The hand-built `sd-cuda:latest` image no longer exists on the host.** The model
+weights are all still present (`flux-2-klein-9b-Q8_0.gguf` 9.98GB,
+`Qwen3-8B-Q8_0.gguf` 8.71GB, `ae.safetensors` 336MB) — only the container image is
+missing. The config still references it, so the `flux-klein` entry has been dead
+since the image was pruned.
+
+Fallback #2 is therefore **not available today** without repair work.
+
+### F17 — The repair for `ai-server` is a one-line image swap
+`stable-diffusion.cpp` now publishes official CUDA images to
+`ghcr.io/leejet/stable-diffusion.cpp` (CI builds a matrix of cuda/vulkan/sycl/musa
+variants, for both `sd-cli` and `sd-server`). The custom image is no longer needed.
+
+Fixing `flux-klein` should be replacing `sd-cuda:latest` with the official CUDA tag
+in `config.yaml` and correcting the entrypoint path if it differs.
+
+**Not attempted in this spike.** `config.yaml` had a live `.config.yaml.swp` (open in
+an editor) and llama-swap runs with `-watch-config`, so writing to it would have
+hot-reloaded a config out from under an editing session. Left entirely untouched.
+
+### F18 — Reference downscaling costs some garment fidelity, not identity
+Visual comparison of the same seed/prompt at 800x480, varying only the reference:
+
+* **ref 1024 (73.5s)** — most faithful to the source garment. Leather reads as matte
+  leather with specular highlights; scarf weave intact.
+* **ref 512 (40.0s)** — identity, pose, sunglasses and scarf all preserved, but the
+  leather drifts toward a sequinned texture. Framing pulls back slightly.
+* **ref 384 (30.9s)** — same drift, arguably the best composition of the three (more
+  warehouse context visible). Identity still preserved.
+* **ref 256 (34.4s)** — *slower* than 384. The curve flattens below ~384 where fixed
+  per-step cost dominates, so there is nothing to gain below that.
+
+Nothing here breaks the "preserve facial features / silhouette" contract. What
+degrades is material fidelity of clothing, and for an aesthetic-transform photo
+frame that drift is arguably on-brief rather than a defect.
+
+**Recommendation: reference at 512 on the long edge.** 40.0s leaves ~20s of the 60s
+budget for the prompt-authoring step, and keeps better garment fidelity than 384.
+
 ## Dead ends
 
 (none yet)
