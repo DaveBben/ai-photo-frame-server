@@ -33,7 +33,30 @@ Note: A's output is stored in EXIF tag 270 and read back by C. A feeds C.
 
 ## Outcome
 
-**IN PROGRESS**
+**PROVEN.** A complete transform ran end to end on `mini` with zero paid API calls,
+inside the 60s budget on the hot path.
+
+```
+=== TIMINGS  out=800x480 steps=4 ref=512 ===
+  A_caption      16.5s   (upload time - NOT in the hot path)
+  B_aesthetic    28.7s   (cached per song - hot path only on a cache miss)
+  C_prompt       13.4s   HOT
+  D_generate     35.4s   HOT
+  HOT PATH   C+D (aesthetic cached) :   48.8s   <-- under the 60s budget
+  COLD PATH  B+C+D (cache miss)     :   77.5s   <-- over, first play of a song only
+  15G used (7538M wired, 3321M compressor), 203M unused
+```
+
+The settling finding is **F15**: reference-image size, not output size, dominates
+edit cost. Downscaling the input photo to 512px took capability D from 73.5s to
+35-40s and is what put the pipeline under budget.
+
+Verified qualitatively as well as numerically. Feeding "bad guy" / Billie Eilish
+through the chain, the local VLM read the actual album cover and produced
+"90% black, 10% pure white", "cool clinical white spotlight (5000K)", "matte dark
+wood floor". The final image is a cold overhead spotlight on a black void over a
+grainy dark floor with razor-thin depth of field — subject pose, scarf, sunglasses
+and leather all preserved. The album-art grounding (F4) demonstrably worked.
 
 ## Findings log
 
@@ -397,12 +420,91 @@ frame that drift is arguably on-brief rather than a defect.
 **Recommendation: reference at 512 on the long edge.** 40.0s leaves ~20s of the 60s
 budget for the prompt-authoring step, and keeps better garment fidelity than 384.
 
+### F19 — Both models co-resident in 16GB, but with no headroom
+`mlx_vlm.server` holding Qwen3-VL-**4B**-Instruct-4bit (2.9GB on disk) plus a
+resident `Flux2KleinEdit` ran the full pipeline without swapping to death:
+
+| State | PhysMem |
+|---|---|
+| VLM only | 11G used, 4417M unused |
+| VLM + Flux constructed (lazy, weights not loaded) | 12G used, 3198M unused |
+| VLM + Flux after generation | 15G used (7538M wired), **203M unused** |
+
+It fits, but 203MB spare is not headroom, it is luck. Consequences:
+
+* **The 8B VLM is out.** Qwen3-VL-8B-4bit needs ~5-6GB against the 4B's ~2.9GB.
+  There is nowhere for the extra 3GB to come from.
+* Leave nothing else running on this box. During the first benchmark a macOS Photos
+  library re-index was consuming 45% CPU and materially skewed results.
+* Consider raising `iogpu.wired_limit_mb` (defaults to 0/auto; needs sudo). Not
+  attempted here.
+
+### F20 — The 4B model follows the prompt-authoring format only loosely
+Capability C is the weakest link in output quality. `flux_transform.txt` demands
+"80-150 words of flowing prose (no headers, no bullet points, no sections)".
+Qwen3-VL-4B returned ~220 words in labelled `Subject:` / `Environment:` / `Style:`
+sections, and used the banned phrase "as if" once. It did correctly emit the
+required trailing "Preserve all facial features..." sentence.
+
+Klein tolerated the malformed prompt and produced a good image anyway, so this is a
+quality wobble rather than a failure. But it is the first thing to improve, and the
+options conflict with F19's memory ceiling:
+
+* A larger text model would follow the format better but will not fit alongside Flux.
+* Splitting capability C onto `ai-server`'s GPU1 `qwen3.6-4b` (marked `swap: false`,
+  never evicted, so it costs the 3090 Ti nothing) is the cheap fix.
+* Or tighten `flux_transform.txt` for a smaller model, since prompts are free to change.
+
+### F21 — Stage placement matters more than raw speed
+The naive reading of the numbers (16.5 + 28.7 + 13.4 + 35.4 = 94s) is wrong, because
+only two stages are actually in the request path:
+
+* **A (caption, 16.5s)** already runs on `PUT /images` at upload, a different request
+  from the transform. It is not in the transform path at all.
+* **B (aesthetic, 28.7s)** is already cached in SQLite by `AestheticCache`, keyed on
+  (artist, song). It runs once per song, ever.
+* **C + D (48.8s)** is the real `POST /images` cost.
+
+So the existing architecture already isolates the slow stages. The only user-visible
+miss is the *first* play of a *new* song, at 77.5s. Options if that matters:
+pre-warm the aesthetic cache when a song is identified but before transform is
+requested, or accept one slow first play per song.
+
 ## Dead ends
 
-(none yet)
+* **`ai-server` flux-klein (F16).** The `sd-cuda:latest` image no longer exists on
+  the host, so every request 500s instantly. Weights are all still present. Not
+  repaired here because `config.yaml` was open in an editor and llama-swap runs
+  `-watch-config`.
+* **1024x1024 generation on the Mini (F10).** Reaches `MEM=10G, STATE=stuck` and
+  pages. Irrelevant anyway, the panel is 800x480.
+* **Qwen3-VL-8B as the VLM (F19).** Downloaded and tested; there is no room for it
+  alongside Flux in 16GB. The 4B is what fits.
+* **Reference images below ~384px (F18).** 256px was *slower* than 384px. No gain
+  below the flattening point.
+* **`ru_maxrss` for memory measurement (F10).** Reports a constant ~1.9GB because
+  MLX allocates through Metal buffers outside RSS. Use `top`.
+* **Piping a long-running benchmark through `tail`/`grep` (this spike, twice).**
+  Buffers everything until process exit, so progress is invisible and a hung run
+  looks identical to a slow one. Run with `python -u` and read the file directly.
 
 ## Open questions
 
-* Actual wall-clock and peak RAM on M4 base — all published numbers are from faster GPUs.
-* Can the VLM and the diffusion model be resident simultaneously in 16GB, or must they swap?
-* What replaces the web search in capability B without an API key?
+Answered by this spike: wall-clock and RAM on the M4 (F12, F19), co-residency
+(F19), and the web-search replacement (F4, F9).
+
+Still open for the official build:
+
+* **Can steps drop below 4?** `bench4.py` is written and staged on `mini` but was not
+  run. Klein is distilled around 4 steps; if 2-3 hold up, capability D roughly halves
+  and the cold path comes under 60s too. **Cheapest remaining win — run this first.**
+* **Does the 4B VLM caption well enough for capability A?** The caption was generated
+  and consumed, but never compared side by side against a GPT-4o caption of the same
+  photo. A is off the hot path, so a slower/better arrangement is affordable there.
+* **Should capability C move to `ai-server`'s GPU1?** `qwen3.6-4b` is `swap: false`
+  and never evicted, so using it costs the 3090 Ti nothing and would fix F20.
+* **Does `iogpu.wired_limit_mb` buy usable headroom?** Needs sudo, not attempted.
+* **Thermals and sustained load.** Every measurement here is a cold-ish one-shot. A
+  frame that transforms repeatedly may throttle on a fanless-ish M4 Mini.
+* **Concurrency.** One diffusion process serves one request at a time. Two frames, or
+  a retry during a generation, will queue. Needs a lock or a queue in the official build.
