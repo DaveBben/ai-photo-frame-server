@@ -551,12 +551,64 @@ uv run python pipeline.py test.jpg "bad guy" "Billie Eilish" 800 3 512
 
 Expect roughly: A 16.5s, B 28.7s (or instant once cached), C 13.4s, D 25.1s.
 
+### F23 — `ai-server` flux-klein FIXED and benchmarked (supersedes F16/F17)
+Repaired on `ai-server` at the user's request. One-line change, committed there as
+`680af91` (revert point `8b91b22`):
+
+```diff
+-        sd-cuda:latest
++        ghcr.io/leejet/stable-diffusion.cpp:master-cuda
+```
+
+The official CUDA image ships a `/sd-server` shim at exactly the path the existing
+`--entrypoint /sd-server` already used, so nothing else in the block changed. All
+nine configured flags (`--verbose --listen-ip --listen-port --diffusion-model --vae
+--llm --cfg-scale --steps --rng`) verified present in the new build before editing.
+
+Measured through llama-swap, 800x480 edit, 1024x1024 reference:
+
+| Run | Result | Time |
+|---|---|---|
+| 1 (cold, loads 17.3GB) | HTTP 200 | 44.7s |
+| 2 (warm) | HTTP 200 | **5.4s** |
+| 3 (warm) | HTTP 200 | **5.4s** |
+
+Output verified: valid PNG, correct 800x480, on-prompt, identity preserved. Returned
+as `data[0].b64_json`, OpenAI images-API shape.
+
+**5.4s warm on the full 9B Q8 versus 25-38s on the Mini's 4B.** The 3090 Ti is roughly
+5-7x faster on the same task with the larger, higher-precision model.
+
+**The catch is `ttl: 120`.** flux-klein unloads 120s after the last request, and a
+cold load is 44.7s. A photo frame that transforms sporadically would pay that ~45s
+load most times, which is *worse* than the Mini's steady 25-38s. This option is only
+fast if requests cluster inside the TTL window, or the TTL is raised (at the cost of
+holding 18.6GB of the 3090 Ti hostage from the other gpu0 models).
+
+### F24 — GOTCHA: `sed -i` silently breaks single-file bind mounts
+Cost real debugging time here, and will bite anyone editing this config again.
+
+`config.yaml` is bind-mounted into the llama-swap container as a **single file**
+(`- ./config.yaml:/app/config.yaml`). `sed -i` does not edit in place — it writes a
+new file and renames over the old one, which allocates a **new inode**. The bind
+mount stays pinned to the original, now-unlinked inode.
+
+Result: the host file showed the new image name, the container still read the old
+one, and `-watch-config` never fired because nothing wrote to the inode it watches.
+The failure looked identical to the original bug, which is what made it misleading.
+
+```
+container: 220:        sd-cuda:latest
+host:      220:        ghcr.io/leejet/stable-diffusion.cpp:master-cuda
+```
+
+**Editing this file requires either an inode-preserving write (`cat new > config.yaml`)
+or a `docker compose restart` afterwards.** A restart was used here.
+
 ## Dead ends
 
-* **`ai-server` flux-klein (F16).** The `sd-cuda:latest` image no longer exists on
-  the host, so every request 500s instantly. Weights are all still present. Not
-  repaired here because `config.yaml` was open in an editor and llama-swap runs
-  `-watch-config`.
+* **~~`ai-server` flux-klein (F16)~~ — RESOLVED in F23.** Was dead because
+  `sd-cuda:latest` had been pruned. Now fixed and serving at 5.4s warm.
 * **1024x1024 generation on the Mini (F10).** Reaches `MEM=10G, STATE=stuck` and
   pages. Irrelevant anyway, the panel is 800x480.
 * **Qwen3-VL-8B as the VLM (F19).** Downloaded and tested; there is no room for it
