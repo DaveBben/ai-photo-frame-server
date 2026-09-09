@@ -51,6 +51,10 @@ The settling finding is **F15**: reference-image size, not output size, dominate
 edit cost. Downscaling the input photo to 512px took capability D from 73.5s to
 35-40s and is what put the pipeline under budget.
 
+**F22 then improved on the measured run above.** Cutting to 3 steps takes the hot
+path from 48.8s to **38.5s** with no visible quality loss, and 2 steps brings even
+the cold path to 60.0s. The 48.8s figure below is the conservative 4-step result.
+
 Verified qualitatively as well as numerically. Feeding "bad guy" / Billie Eilish
 through the chain, the local VLM read the actual album cover and produced
 "90% black, 10% pure white", "cool clinical white spotlight (5000K)", "matte dark
@@ -470,6 +474,32 @@ miss is the *first* play of a *new* song, at 77.5s. Options if that matters:
 pre-warm the aesthetic cache when a song is identified but before transform is
 requested, or accept one slow first play per song.
 
+### F22 — Steps can drop to 2-3, roughly halving capability D
+Klein 4B is distilled around 4 steps, but fewer hold up. Output 800x480,
+reference 512, warm model, same seed and prompt:
+
+| Steps | Time | Quality |
+|---|---|---|
+| 1 | 14.3s | not evaluated |
+| **2** | **17.8s** | usable; marginally softer than 3 |
+| **3** | **25.1s** | near-indistinguishable from 4; slightly cleaner fixture and hair detail than 2 |
+| 4 | 38.5s | baseline |
+
+There is no quality cliff between 2 and 4 on this kind of stylistic edit. Step count
+is the second-biggest latency lever after reference size (F15).
+
+Combined with F15, this is what the budget looks like:
+
+| Config | C (prompt) | D (edit) | HOT (C+D) | COLD (B+C+D) |
+|---|---|---|---|---|
+| ref 512, 4 steps | 13.4s | 38.5s | 51.9s | 80.6s |
+| **ref 512, 3 steps** | 13.4s | 25.1s | **38.5s** | 67.2s |
+| **ref 512, 2 steps** | 13.4s | 17.8s | **31.2s** | **60.0s** |
+
+**Recommended: reference 512, 3 steps.** Hot path 38.5s with comfortable margin,
+and quality indistinguishable from 4 steps. Drop to 2 steps only if the cold path
+(first play of a new song) must also fit inside 60s.
+
 ## Dead ends
 
 * **`ai-server` flux-klein (F16).** The `sd-cuda:latest` image no longer exists on
@@ -495,9 +525,6 @@ Answered by this spike: wall-clock and RAM on the M4 (F12, F19), co-residency
 
 Still open for the official build:
 
-* **Can steps drop below 4?** `bench4.py` is written and staged on `mini` but was not
-  run. Klein is distilled around 4 steps; if 2-3 hold up, capability D roughly halves
-  and the cold path comes under 60s too. **Cheapest remaining win — run this first.**
 * **Does the 4B VLM caption well enough for capability A?** The caption was generated
   and consumed, but never compared side by side against a GPT-4o caption of the same
   photo. A is off the hot path, so a slower/better arrangement is affordable there.
