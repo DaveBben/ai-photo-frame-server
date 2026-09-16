@@ -8,7 +8,11 @@ Not doing: No change to any route's request or response; openapi.yaml stays as i
            No interface class in front of a model client (docs/adr/architecture/split-api-pipeline-and-clients.md).
            No change to the prompt files or the SQLite aesthetic cache schema.
            No local models; that is the next piece of work.
-Slices:    none left. Close-out is next: turn each Learned line below into a test, an ADR or an AGENTS.md line.
+Slices:    none left. Closed 2026-09-16.
+Pins:      SQLite connection leak: tests/test_aesthetic_cache.py.
+           Failed aesthetic lookup is cached: tests/test_aesthetic_route.py::test_no_visual_data_reply_is_returned_and_not_cached (pins the bug; fixing it needs a card).
+           mutmut segfaults in pipeline.py: CLAUDE.md, Mutation Testing.
+           Item 2 and 5 import rules untested: tests/test_import_rules_pipeline_and_config.py.
 
 ## 2026-09-16 — Transform a photo
 - Done: POST /images goes through pipeline.transform; server.py builds the OpenAI and Flux clients once at startup; image_transformer.py deleted.
