@@ -36,7 +36,12 @@ async def _generate_flux_prompt(
     artist_name: str,
 ) -> str:
     """Use GPT-4o with image metadata and cached aesthetics to generate a Flux.2 prompt."""
-    aesthetic = await get_aesthetic(client, cache, song_name, artist_name)
+    aesthetic = await get_aesthetic(
+        openai_client=client,
+        aesthetic_cache=cache,
+        song_name=song_name,
+        artist_name=artist_name,
+    )
 
     metadata = extract_image_metadata(image_path)
 
