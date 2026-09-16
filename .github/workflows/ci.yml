@@ -27,6 +27,8 @@ jobs:
 
       - run: uv run mypy src
 
+      - run: uv run lint-imports
+
       - run: uv run vulture
 
       - run: uv run pip-audit --skip-editable

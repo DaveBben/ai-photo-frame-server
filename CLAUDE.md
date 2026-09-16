@@ -48,7 +48,9 @@ TODO: Document your architecture here.
 
 ## Before Creating PR
 
-Run: `uv run ruff check src && uv run mypy src && uv run pytest`
+Run: `./check` (or `./check --offline` without network, which skips pip-audit). The commit hook and CI run the same steps.
+
+Silencing a check is not passing it. Disabling a rule, loosening a config, weakening an assertion, or skipping a test to reach green is not a fix.
 
 ## Mutation Testing
 
