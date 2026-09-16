@@ -1,16 +1,64 @@
-"""Orchestration for the aesthetic step (look up a song's aesthetic, cache first) and the transform step (write the edit prompt, then call the image model)."""
+"""Orchestration for the upload step (save, describe, save the described copy), the aesthetic step (look up a song's aesthetic, cache first) and the transform step (write the edit prompt, then call the image model)."""
 
 import base64
+import uuid
+from io import BytesIO
 from pathlib import Path
+from uuid import UUID
 
 import anyio
+from PIL import Image, ImageOps
+from PIL.Image import Resampling
 
 from local_shazam.aesthetic_cache import AestheticCache
 from local_shazam.exceptions import ServiceError
 from local_shazam.flux2_client import Flux2Client
+from local_shazam.image_store import ImageStore, extract_image_metadata
+from local_shazam.logger import get_logger
 from local_shazam.openai_client import OpenAIClient
-from local_shazam.process_images import extract_image_metadata
 from local_shazam.prompts import load_prompt
+
+log = get_logger(__name__)
+
+
+def _prepare_image_for_api(img: Image.Image) -> str:
+    """Thumbnail an image to <=1024px and return base64-encoded JPEG."""
+    img = img.copy()
+    img.thumbnail((1024, 1024), Resampling.LANCZOS)
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+async def _describe_image(client: OpenAIClient, img: Image.Image) -> str:
+    """Call GPT-4o vision to describe the image."""
+    b64_data = _prepare_image_for_api(img)
+    return await client.describe_image(
+        b64_data, load_prompt("describe_image"), max_tokens=800
+    )
+
+
+async def describe_and_store(
+    openai_client: OpenAIClient,
+    image_store: ImageStore,
+    image: Image.Image,
+) -> UUID:
+    """Save the upright RGB photo, describe it with the vision model, save the described copy, and return its id."""
+    image_id = uuid.uuid4()
+
+    img = ImageOps.exif_transpose(image)
+    if img is None:
+        img = image
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+
+    image_store.save_original(image_id, img)
+
+    description = await _describe_image(openai_client, img)
+    log.info("Got description (%d chars)", len(description))
+
+    image_store.save_described(image_id, img, description)
+    return image_id
 
 
 async def get_aesthetic(

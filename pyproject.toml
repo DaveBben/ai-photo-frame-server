@@ -90,6 +90,44 @@ exclude_lines = [
     "raise NotImplementedError",
 ]
 
+[tool.importlinter]
+root_package = "local_shazam"
+exclude_type_checking_imports = true
+
+[[tool.importlinter.contracts]]
+name = "ADR item 1: api imports no model client, store, config or server"
+type = "forbidden"
+source_modules = ["local_shazam.api"]
+forbidden_modules = [
+    "local_shazam.openai_client",
+    "local_shazam.flux2_client",
+    "local_shazam.image_store",
+    "local_shazam.aesthetic_cache",
+    "local_shazam.config",
+    "local_shazam.server",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "ADR item 2: pipeline imports no api, server or config"
+type = "forbidden"
+source_modules = ["local_shazam.pipeline"]
+forbidden_modules = ["local_shazam.api", "local_shazam.server", "local_shazam.config"]
+
+[[tool.importlinter.contracts]]
+name = "ADR item 4: model clients and stores import no api, pipeline, server, config or each other"
+type = "layers"
+layers = [
+    "local_shazam.api : local_shazam.pipeline : local_shazam.server : local_shazam.config",
+    "local_shazam.openai_client | local_shazam.flux2_client | local_shazam.image_store | local_shazam.aesthetic_cache",
+]
+
+[[tool.importlinter.contracts]]
+name = "ADR item 5: only server imports config"
+type = "protected"
+protected_modules = ["local_shazam.config"]
+allowed_importers = ["local_shazam.server"]
+
 [tool.vulture]
 paths = ["src", "vulture_whitelist.py"]
 

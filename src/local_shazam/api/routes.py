@@ -18,8 +18,8 @@ _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 if TYPE_CHECKING:
     from local_shazam.aesthetic_cache import AestheticCache
     from local_shazam.flux2_client import Flux2Client
+    from local_shazam.image_store import ImageStore
     from local_shazam.openai_client import OpenAIClient
-    from local_shazam.process_images import ImageStore
 
 router = APIRouter()
 
@@ -44,6 +44,7 @@ async def upload_image(request: Request, file: UploadFile) -> dict[str, str]:
         JSON with the assigned image UUID.
     """
     image_store: ImageStore = request.app.state.image_store
+    openai_client: OpenAIClient = request.app.state.openai_client
 
     contents = await file.read()
     if len(contents) > _MAX_UPLOAD_SIZE:
@@ -57,7 +58,9 @@ async def upload_image(request: Request, file: UploadFile) -> dict[str, str]:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}") from e
 
-    image_id = await image_store.put_image(img)
+    image_id = await pipeline.describe_and_store(
+        openai_client=openai_client, image_store=image_store, image=img
+    )
     return {"image_id": str(image_id)}
 
 
