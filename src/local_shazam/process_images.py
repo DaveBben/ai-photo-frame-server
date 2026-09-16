@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from local_shazam.config import Settings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 log = get_logger(__name__)
 

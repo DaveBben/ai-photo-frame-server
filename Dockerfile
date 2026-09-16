@@ -50,7 +50,7 @@ WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Switch to non-root user
-USER app
+USER 1000:1000
 
 # Default command - override in docker-compose or at runtime
 ENTRYPOINT ["python", "-m", "local_shazam"]

@@ -5,17 +5,36 @@ on: [push, pull_request]
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+      HYPOTHESIS_PROFILE: ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v10.1.0
 
       - run: uv sync --locked
 
-      - run: uv run ruff check .
-
       - run: uv run ruff format --check .
+
+      - run: uv run ruff check .
 
       - run: uv run mypy src
 
+      - run: uv run vulture
+
+      - run: uv run pip-audit --skip-editable
+
       - run: uv run pytest --cov
+
+      - run: uv run pytest -m e2e
+
+      - name: Mutation testing on changed source files
+        if: github.event_name == 'pull_request'
+        run: scripts/mutate-changed origin/${{ github.base_ref }}

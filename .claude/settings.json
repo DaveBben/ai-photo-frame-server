@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(./check)",
+      "Bash(./check --offline)",
+      "Bash(scripts/mutate-changed:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run mypy:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run vulture:*)",
+      "Bash(uv run pip-audit:*)",
+      "Bash(uv run mutmut:*)",
+      "Bash(uv lock --check:*)",
+      "Bash(uv sync)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [
+      "Read(./.env*)", "Edit(./.env*)", "Write(./.env*)",
+      "Edit(./uv.lock)", "Write(./uv.lock)",
+      "Edit(./.git/**)", "Write(./.git/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bash-guard.sh"}]
+    }, {
+      "matcher": "Edit|Write|MultiEdit",
+      "hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tests-guard.sh"}]
+    }],
+    "PostToolUse": [{
+      "matcher": "Edit|Write|MultiEdit",
+      "hooks": [
+        {"type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/fast-check.sh"},
+        {"type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/deps-guard.sh"}
+      ]
+    }],
+    "Stop": [{
+      "hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/turn-end-check.sh"}]
+    }],
+    "SessionStart": [{
+      "hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"}]
+    }]
+  }
+}

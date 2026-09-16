@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -10,23 +10,34 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.0
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
     hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
+      - id: gitleaks
+
+  - repo: https://github.com/AleksaC/hadolint-py
+    rev: v2.15.1
+    hooks:
+      - id: hadolint
 
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.10.1
+    rev: 0.12.15
     hooks:
       - id: uv-lock
 
   - repo: local
     hooks:
-      - id: mypy
-        name: mypy
-        entry: uv run mypy src
+      # Needs the network, so it runs only when the lockfile changes.
+      # Skip it alone during an outage: SKIP=pip-audit git commit
+      - id: pip-audit
+        name: pip-audit
+        entry: uv run pip-audit --skip-editable
         language: system
-        types: [python]
+        files: ^uv\.lock$
         pass_filenames: false
+      - id: check
+        name: ./check --offline
+        entry: ./check --offline
+        language: system
+        pass_filenames: false
+        always_run: true
