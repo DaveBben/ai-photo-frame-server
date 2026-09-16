@@ -14,7 +14,7 @@ Slices:
 ## 2026-09-16 — Transform a photo
 - Done: POST /images goes through pipeline.transform; server.py builds the OpenAI and Flux clients once at startup; image_transformer.py deleted.
 - By hand: none: the user asked the agent to write pipeline.transform.
-- Observed: not yet. Signal: the frame shows a transformed photo after this branch is deployed.
+- Observed: seen 2026-09-16. The user deployed the branch and the frame showed a transformed photo.
 - Accepted: b07e0be
 - Learned: **`with sqlite3.connect(path) as conn` commits but never closes the connection**, so AestheticCache left one open per read or write until garbage collection. Pinned by tests/test_aesthetic_cache.py.
 - Decided: route tests call the app in-process through httpx.ASGITransport instead of Starlette's TestClient, because Starlette 1.6 deprecates TestClient with httpx and asks for an httpx2 package. Tradeoff: an exception the route does not catch reaches the test as that exception, where a running server returns 500.
@@ -24,7 +24,7 @@ Slices:
 ## 2026-09-16 — Look up a song's aesthetic
 - Done: GET /aesthetic and the POST /images transform both call pipeline.get_aesthetic, the one copy of the cache-then-search lookup. GET /aesthetic now uses the OpenAI client server.py builds at startup instead of building one per request.
 - By hand: none: the user asked the agent to write pipeline.get_aesthetic. The user wrote a three-line merge description and skipped the ten questions comparing it with the diff.
-- Observed: not yet. Signal: after deploy, GET /aesthetic returns the aesthetic JSON for a song, and the frame shows a transformed photo.
+- Observed: seen 2026-09-16. The user deployed the branch, GET /aesthetic returned the aesthetic JSON, and the frame showed a transformed photo.
 - Accepted: 5be50cf
 - Learned: **prompts/search_aesthetic.txt tells the model to reply "Insufficient visual data found.", and get_aesthetic skips the cache write only for replies containing "No visual data found"**, so a failed lookup is cached and reused by every later transform for that song. Kept unchanged by this move. tests/test_aesthetic_route.py::test_no_visual_data_reply_is_returned_and_not_cached pins today's string.
 - Learned: **every mutmut mutant in pipeline.py ends as "segfault" on the developer's machine**, so scripts/mutate-changed gave no result and the review applied the mutations by hand. Cause not established; a mutmut run in CI would show whether the crash is local. Not pinned.
