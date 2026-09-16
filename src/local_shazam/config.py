@@ -1,5 +1,7 @@
 """Application configuration via environment variables."""
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +14,7 @@ class Settings(BaseSettings):
         openai_api_key: OpenAI API key for GPT-4o vision and chat.
         server_host: Host address to bind the server to.
         server_port: Port number for the HTTP server.
+        data_dir: Directory holding stored images and the aesthetic cache.
     """
 
     model_config = SettingsConfigDict(
@@ -25,3 +28,5 @@ class Settings(BaseSettings):
     # Server settings
     server_host: str = "0.0.0.0"  # noqa: S104
     server_port: int = 8000
+
+    data_dir: Path = Path(__file__).resolve().parents[2] / "data"

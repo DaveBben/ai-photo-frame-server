@@ -34,6 +34,7 @@ Set these environment variables (or use `.env` file):
 | `SERVER_HOST` | No | `0.0.0.0` | Server bind address |
 | `SERVER_PORT` | No | `8000` | Server port |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
+| `DATA_DIR` | No | `data/` in the repo | Stored images and the aesthetic cache |
 
 ## Development
 

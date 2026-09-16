@@ -42,8 +42,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     log.info("Initializing server...")
     app.state.settings = settings
-    app.state.image_store = ImageStore(settings)
-    app.state.aesthetic_cache = AestheticCache()
+    app.state.image_store = ImageStore(settings, settings.data_dir / "img")
+    app.state.aesthetic_cache = AestheticCache(settings.data_dir / "aesthetic_cache.db")
     log.info("Server initialized")
 
     yield
