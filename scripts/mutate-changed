@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Mutation-test the source files changed since a base ref (default origin/main).
+# Fails when any mutant in those files survives or has no test covering it.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+base="${1:-origin/main}"
+modules=()
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  m="${f#src/}"; m="${m%.py}"; m="${m//\//.}"; m="${m%.__init__}"
+  modules+=("$m")
+done < <(git diff --name-only "$base"...HEAD -- 'src/*.py')
+
+if [ "${#modules[@]}" -eq 0 ]; then
+  echo "mutation: no source files changed since $base"
+  exit 0
+fi
+
+globs=()
+for m in "${modules[@]}"; do globs+=("$m.*"); done
+uv run mutmut run "${globs[@]}" >/dev/null
+
+survivors="$(uv run mutmut results | grep -F "${modules[@]/#/-e}" | grep -v ': not checked' || true)"
+if [ -n "$survivors" ]; then
+  echo "These mutants were not caught. Each one is a change to your code that no test" >&2
+  echo "fails on. Write or strengthen a test so it fails when that code changes." >&2
+  echo "See a mutation with: uv run mutmut show <name>" >&2
+  echo "$survivors" >&2
+  exit 1
+fi
+echo "mutation: every mutant in ${modules[*]} was killed"

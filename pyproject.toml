@@ -20,6 +20,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "hypothesis>=6.120",
+    "mutmut>=3.8.0",
     "mypy>=1.13",
     "pip-audit>=2.7",
     "pre-commit>=4.0",
@@ -29,6 +30,7 @@ dev = [
     "pytest-xdist>=3.5",
     "respx>=0.22",
     "ruff>=0.8",
+    "vulture>=2.16",
 ]
 
 [build-system]
@@ -45,8 +47,9 @@ packages = ["src/local_shazam"]
 path = "src/local_shazam/__init__.py"
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 src = ["src"]
+extend-exclude = ["vulture_whitelist.py"]
 
 [tool.ruff.lint]
 select = [
@@ -70,8 +73,10 @@ plugins = ["pydantic.mypy"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
-addopts = "-ra -q --strict-markers"
-markers = ["slow", "integration"]
+addopts = "-ra -q --strict-markers -m 'not e2e'"
+markers = ["slow", "integration", "e2e: starts the real server process and calls it over HTTP"]
+filterwarnings = ["error"]
+xfail_strict = true
 
 [tool.coverage.run]
 source = ["src"]
@@ -83,3 +88,9 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
 ]
+
+[tool.vulture]
+paths = ["src", "vulture_whitelist.py"]
+
+[tool.mutmut]
+source_paths = ["src/"]

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# The one check command. The commit hook, CI and the agent all run this.
+# Stops at the first failure. --offline skips the dependency audit (needs network).
+set -euo pipefail
+cd "$(dirname "$0")"
+
+step() { echo "==> $*"; "$@"; }
+
+step uv run ruff format --check .
+step uv run ruff check .
+step uv run mypy src
+step uv run vulture || {
+  echo "Delete the unused code. When a framework calls it by name, add it to vulture_whitelist.py." >&2
+  exit 1
+}
+if [ "${1:-}" != "--offline" ]; then
+  step uv run pip-audit --skip-editable
+fi
+step uv run pytest --cov
+step uv run pytest -m e2e
