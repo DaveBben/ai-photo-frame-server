@@ -8,8 +8,7 @@ Not doing: No change to any route's request or response; openapi.yaml stays as i
            No interface class in front of a model client (docs/adr/architecture/split-api-pipeline-and-clients.md).
            No change to the prompt files or the SQLite aesthetic cache schema.
            No local models; that is the next piece of work.
-Slices:
-  1. Upload a photo: PUT /images goes through pipeline.describe_and_store, store renamed image_store and stops calling the model, import-linter rules land (hours)
+Slices:    none left. Close-out is next: turn each Learned line below into a test, an ADR or an AGENTS.md line.
 
 ## 2026-09-16 — Transform a photo
 - Done: POST /images goes through pipeline.transform; server.py builds the OpenAI and Flux clients once at startup; image_transformer.py deleted.
@@ -31,3 +30,14 @@ Slices:
 - Decided: the branch was rebased onto origin/main, dropping the spike and pre-squash harness commits it had been cut on top of. Tradeoff: the ADR cites SPIKE_FINDINGS.md, which is on spike/local-ai and not on main.
 - Decided: routes.py keeps OpenAIClient as a type-only import because two routes annotate with it. Tradeoff: api still names a client type, and the import-linter rule in the next change must allow type-only imports or the annotations go.
 - Decided: the transform calls get_aesthetic with keyword arguments, because get_aesthetic takes the song first, the cache and search take the artist first, and mypy passes a swap of two str arguments. Tradeoff: four extra lines.
+
+## 2026-09-16 — Upload a photo
+- Done: PUT /images goes through pipeline.describe_and_store; process_images.py is renamed image_store.py and no longer builds or calls a model client; ./check runs lint-imports with one import rule per ADR item 1, 2, 4 and 5.
+- By hand: none: the user asked the agent to write pipeline.describe_and_store, and skipped the merge description.
+- Observed: not yet. Signal: after deploy, a photo uploaded from the frame with PUT /images appears on the frame through GET /images.
+- Accepted: e5067e6
+- Learned: **deleting the import rule for ADR item 2 (pipeline imports no api, server or config) or item 5 (only server imports config) left every test green**, because the accepted rule tests only add a client import to routes.py and image_store.py. Pinned by tests/test_import_rules_pipeline_and_config.py.
+- Decided: the import rules skip imports inside `if TYPE_CHECKING:`, so routes.py keeps annotating app.state values with client and store types. Tradeoff: a type-only client import in api passes the rules; it cannot build or call a client at runtime.
+- Decided: item 1's rule allows indirect imports, because api reaches the clients through pipeline by design. Tradeoff: api reaching a client through exceptions, logger or prompts is not caught by any rule.
+- Decided: the image store has two methods, save_original and save_described, because the model call runs between the two saves and a failed call must still leave the original on disk. Tradeoff: two methods where one could take the description.
+- Decided: the build is one commit, because the pre-commit hook runs the rule tests, which fail until both the move and the rules exist. Tradeoff: git bisect cannot separate the move from the rules.
