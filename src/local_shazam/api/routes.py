@@ -10,16 +10,16 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from PIL import Image
 
+from local_shazam import pipeline
 from local_shazam.exceptions import ServiceError
-from local_shazam.image_transformer import transform_image
-from local_shazam.openai_client import OpenAIClient
 
 _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
 if TYPE_CHECKING:
     from local_shazam.aesthetic_cache import AestheticCache
-    from local_shazam.config import Settings
-    from local_shazam.process_images import ImageStore
+    from local_shazam.flux2_client import Flux2Client
+    from local_shazam.image_store import ImageStore
+    from local_shazam.openai_client import OpenAIClient
 
 router = APIRouter()
 
@@ -44,6 +44,7 @@ async def upload_image(request: Request, file: UploadFile) -> dict[str, str]:
         JSON with the assigned image UUID.
     """
     image_store: ImageStore = request.app.state.image_store
+    openai_client: OpenAIClient = request.app.state.openai_client
 
     contents = await file.read()
     if len(contents) > _MAX_UPLOAD_SIZE:
@@ -57,7 +58,9 @@ async def upload_image(request: Request, file: UploadFile) -> dict[str, str]:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}") from e
 
-    image_id = await image_store.put_image(img)
+    image_id = await pipeline.describe_and_store(
+        openai_client=openai_client, image_store=image_store, image=img
+    )
     return {"image_id": str(image_id)}
 
 
@@ -107,7 +110,8 @@ async def transform_image_endpoint(
         PNG image bytes of the transformed image.
     """
     image_store: ImageStore = request.app.state.image_store
-    settings: Settings = request.app.state.settings
+    openai_client: OpenAIClient = request.app.state.openai_client
+    flux_client: Flux2Client = request.app.state.flux_client
     aesthetic_cache: AestheticCache = request.app.state.aesthetic_cache
 
     try:
@@ -116,12 +120,13 @@ async def transform_image_endpoint(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
     try:
-        png_bytes = await transform_image(
+        png_bytes = await pipeline.transform(
+            openai_client=openai_client,
+            flux_client=flux_client,
+            aesthetic_cache=aesthetic_cache,
             image_path=image_path,
             song_name=song_title,
             artist_name=song_artists,
-            settings=settings,
-            aesthetic_cache=aesthetic_cache,
         )
     except ServiceError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
@@ -145,17 +150,17 @@ async def get_aesthetic(
     Returns:
         JSON with the aesthetic description.
     """
-    settings: Settings = request.app.state.settings
-    cache: AestheticCache = request.app.state.aesthetic_cache
+    openai_client: OpenAIClient = request.app.state.openai_client
+    aesthetic_cache: AestheticCache = request.app.state.aesthetic_cache
 
-    aesthetic = cache.get(artist, song_title)
-    if aesthetic is None:
-        try:
-            client = OpenAIClient(settings.openai_api_key)
-            aesthetic = await client.search_aesthetic(artist, song_title)
-        except ServiceError as e:
-            raise HTTPException(status_code=502, detail=str(e)) from e
-        if "No visual data found" not in aesthetic:
-            cache.put(artist, song_title, aesthetic)
+    try:
+        aesthetic = await pipeline.get_aesthetic(
+            openai_client=openai_client,
+            aesthetic_cache=aesthetic_cache,
+            song_name=song_title,
+            artist_name=artist,
+        )
+    except ServiceError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
     return {"aesthetic": aesthetic}

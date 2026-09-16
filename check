@@ -9,6 +9,7 @@ step() { echo "==> $*"; "$@"; }
 step uv run ruff format --check .
 step uv run ruff check .
 step uv run mypy src
+step uv run lint-imports
 step uv run vulture || {
   echo "Delete the unused code. When a framework calls it by name, add it to vulture_whitelist.py." >&2
   exit 1

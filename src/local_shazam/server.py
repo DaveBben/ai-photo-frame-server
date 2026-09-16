@@ -11,8 +11,10 @@ from fastapi import FastAPI
 from local_shazam.aesthetic_cache import AestheticCache
 from local_shazam.api.routes import router as http_router
 from local_shazam.config import Settings
+from local_shazam.flux2_client import Flux2Client
+from local_shazam.image_store import ImageStore
 from local_shazam.logger import get_logger, setup_root_logger
-from local_shazam.process_images import ImageStore
+from local_shazam.openai_client import OpenAIClient
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -42,8 +44,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     log.info("Initializing server...")
     app.state.settings = settings
-    app.state.image_store = ImageStore(settings)
-    app.state.aesthetic_cache = AestheticCache()
+    app.state.image_store = ImageStore(settings.data_dir / "img")
+    app.state.aesthetic_cache = AestheticCache(settings.data_dir / "aesthetic_cache.db")
+    app.state.openai_client = OpenAIClient(settings.openai_api_key)
+    app.state.flux_client = Flux2Client(settings.bfl_api_key)
     log.info("Server initialized")
 
     yield
