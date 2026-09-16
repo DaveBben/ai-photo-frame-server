@@ -1,8 +1,12 @@
 """Orchestration for the upload, aesthetic and transform steps."""
 
+import base64
 from pathlib import Path
 
+import anyio
+
 from local_shazam.aesthetic_cache import AestheticCache
+from local_shazam.exceptions import ServiceError
 from local_shazam.flux2_client import Flux2Client
 from local_shazam.openai_client import OpenAIClient
 from local_shazam.process_images import extract_image_metadata
@@ -71,4 +75,12 @@ async def transform(
     artist_name: str,
 ) -> bytes:
     """Write the edit prompt from the song's aesthetic and the photo's metadata, send the photo and prompt to the image model, and return the PNG bytes it produced."""
-    raise NotImplementedError
+    if not await anyio.Path(image_path).exists():
+        raise ServiceError(f"Image not found: {image_path}")
+
+    flux_prompt = await _generate_flux_prompt(
+        openai_client, aesthetic_cache, image_path, song_name, artist_name
+    )
+    image_bytes = await anyio.Path(image_path).read_bytes()
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    return await flux_client.generate_image(flux_prompt, image_b64)
