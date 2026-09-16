@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,7 +33,7 @@ class AestheticCache:
 
     def _init_db(self) -> None:
         """Create the aesthetics table if it doesn't exist."""
-        with sqlite3.connect(self._db_path) as conn:
+        with closing(sqlite3.connect(self._db_path)) as conn, conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS aesthetics (
                     artist TEXT NOT NULL,
@@ -63,7 +64,7 @@ class AestheticCache:
         artist_norm = self._normalize(artist)
         song_norm = self._normalize(song)
 
-        with sqlite3.connect(self._db_path) as conn:
+        with closing(sqlite3.connect(self._db_path)) as conn, conn:
             cursor = conn.execute(
                 "SELECT description FROM aesthetics WHERE artist = ? AND song = ?",
                 (artist_norm, song_norm),
@@ -90,7 +91,7 @@ class AestheticCache:
         song_norm = self._normalize(song)
         now = datetime.now(UTC).isoformat()
 
-        with sqlite3.connect(self._db_path) as conn:
+        with closing(sqlite3.connect(self._db_path)) as conn, conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO aesthetics (artist, song, description, created_at)
