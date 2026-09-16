@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PIL import Image, ImageOps
+from PIL.ExifTags import GPS, IFD
 from PIL.Image import Resampling
 
 from local_shazam.logger import get_logger
@@ -24,6 +25,70 @@ if TYPE_CHECKING:
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 log = get_logger(__name__)
+
+
+def _convert_gps_to_decimal(
+    coords: tuple[float, float, float],
+    ref: str,
+) -> float:
+    """Convert GPS coordinates from degrees/minutes/seconds to decimal degrees."""
+    degrees, minutes, seconds = coords
+    decimal = degrees + minutes / 60.0 + seconds / 3600.0
+    if ref in ("S", "W"):
+        decimal = -decimal
+    return decimal
+
+
+def extract_image_metadata(image_path: Path) -> dict[str, str | None]:
+    """Extract EXIF metadata from an image file.
+
+    Args:
+        image_path: Path to the image file.
+
+    Returns:
+        Dictionary containing extracted metadata fields.
+    """
+    metadata: dict[str, str | None] = {
+        "description": None,
+        "datetime": None,
+        "camera_make": None,
+        "camera_model": None,
+        "gps_coords": None,
+    }
+
+    with Image.open(image_path) as img:
+        exif = img.getexif()
+        if not exif:
+            return metadata
+
+        # ImageDescription (tag 270)
+        metadata["description"] = exif.get(270)
+
+        # DateTime (tag 306) or DateTimeOriginal (tag 36867 in EXIF IFD)
+        metadata["datetime"] = exif.get(306)
+        if not metadata["datetime"]:
+            exif_ifd = exif.get_ifd(IFD.Exif)
+            if exif_ifd:
+                metadata["datetime"] = exif_ifd.get(36867)
+
+        # Camera Make (tag 271) and Model (tag 272)
+        metadata["camera_make"] = exif.get(271)
+        metadata["camera_model"] = exif.get(272)
+
+        # GPS coordinates
+        gps_ifd = exif.get_ifd(IFD.GPSInfo)
+        if gps_ifd:
+            lat = gps_ifd.get(GPS.GPSLatitude)
+            lat_ref = gps_ifd.get(GPS.GPSLatitudeRef)
+            lon = gps_ifd.get(GPS.GPSLongitude)
+            lon_ref = gps_ifd.get(GPS.GPSLongitudeRef)
+
+            if lat and lat_ref and lon and lon_ref:
+                lat_decimal = _convert_gps_to_decimal(lat, lat_ref)
+                lon_decimal = _convert_gps_to_decimal(lon, lon_ref)
+                metadata["gps_coords"] = f"{lat_decimal:.6f}, {lon_decimal:.6f}"
+
+    return metadata
 
 
 def _prepare_image_for_api(img: Image.Image) -> str:
