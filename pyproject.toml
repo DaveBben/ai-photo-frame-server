@@ -20,6 +20,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "hypothesis>=6.120",
+    "import-linter>=2.15",
     "mutmut>=3.8.0",
     "mypy>=1.13",
     "pip-audit>=2.7",
