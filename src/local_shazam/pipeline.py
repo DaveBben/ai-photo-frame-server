@@ -47,8 +47,6 @@ async def describe_and_store(
     image_id = uuid.uuid4()
 
     img = ImageOps.exif_transpose(image)
-    if img is None:
-        img = image
     if img.mode != "RGB":
         img = img.convert("RGB")
 
