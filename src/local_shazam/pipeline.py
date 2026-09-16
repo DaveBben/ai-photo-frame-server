@@ -1,4 +1,4 @@
-"""Orchestration for the upload, aesthetic and transform steps."""
+"""Orchestration for the transform step: write the edit prompt, then call the image model."""
 
 import base64
 from pathlib import Path
