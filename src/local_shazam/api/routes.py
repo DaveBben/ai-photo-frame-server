@@ -12,14 +12,13 @@ from PIL import Image
 
 from local_shazam import pipeline
 from local_shazam.exceptions import ServiceError
-from local_shazam.openai_client import OpenAIClient
 
 _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
 if TYPE_CHECKING:
     from local_shazam.aesthetic_cache import AestheticCache
-    from local_shazam.config import Settings
     from local_shazam.flux2_client import Flux2Client
+    from local_shazam.openai_client import OpenAIClient
     from local_shazam.process_images import ImageStore
 
 router = APIRouter()
@@ -148,17 +147,17 @@ async def get_aesthetic(
     Returns:
         JSON with the aesthetic description.
     """
-    settings: Settings = request.app.state.settings
-    cache: AestheticCache = request.app.state.aesthetic_cache
+    openai_client: OpenAIClient = request.app.state.openai_client
+    aesthetic_cache: AestheticCache = request.app.state.aesthetic_cache
 
-    aesthetic = cache.get(artist, song_title)
-    if aesthetic is None:
-        try:
-            client = OpenAIClient(settings.openai_api_key)
-            aesthetic = await client.search_aesthetic(artist, song_title)
-        except ServiceError as e:
-            raise HTTPException(status_code=502, detail=str(e)) from e
-        if "No visual data found" not in aesthetic:
-            cache.put(artist, song_title, aesthetic)
+    try:
+        aesthetic = await pipeline.get_aesthetic(
+            openai_client=openai_client,
+            aesthetic_cache=aesthetic_cache,
+            song_name=song_title,
+            artist_name=artist,
+        )
+    except ServiceError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
     return {"aesthetic": aesthetic}

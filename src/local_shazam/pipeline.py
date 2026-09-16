@@ -1,4 +1,4 @@
-"""Orchestration for the transform step: write the edit prompt, then call the image model."""
+"""Orchestration for the aesthetic step (look up a song's aesthetic, cache first) and the transform step (write the edit prompt, then call the image model)."""
 
 import base64
 from pathlib import Path
@@ -13,6 +13,21 @@ from local_shazam.process_images import extract_image_metadata
 from local_shazam.prompts import load_prompt
 
 
+async def get_aesthetic(
+    openai_client: OpenAIClient,
+    aesthetic_cache: AestheticCache,
+    song_name: str,
+    artist_name: str,
+) -> str:
+    """Return the song's cached aesthetic, or search for it and cache the reply unless it contains "No visual data found"."""
+    aesthetic = aesthetic_cache.get(artist_name, song_name)
+    if aesthetic is None:
+        aesthetic = await openai_client.search_aesthetic(artist_name, song_name)
+        if "No visual data found" not in aesthetic:
+            aesthetic_cache.put(artist_name, song_name, aesthetic)
+    return aesthetic
+
+
 async def _generate_flux_prompt(
     client: OpenAIClient,
     cache: AestheticCache,
@@ -21,12 +36,7 @@ async def _generate_flux_prompt(
     artist_name: str,
 ) -> str:
     """Use GPT-4o with image metadata and cached aesthetics to generate a Flux.2 prompt."""
-    # Check cache first, search web on miss
-    aesthetic = cache.get(artist_name, song_name)
-    if aesthetic is None:
-        aesthetic = await client.search_aesthetic(artist_name, song_name)
-        if "No visual data found" not in aesthetic:
-            cache.put(artist_name, song_name, aesthetic)
+    aesthetic = await get_aesthetic(client, cache, song_name, artist_name)
 
     metadata = extract_image_metadata(image_path)
 
