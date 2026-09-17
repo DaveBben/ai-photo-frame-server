@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Install the LaunchDaemon that runs scripts/deploy at every boot, then run it once.
+# Run on the Mac mini from the checkout at ~/ai-photo-frame-server:
+#   ssh -t mini ~/ai-photo-frame-server/scripts/install-mac-mini
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+label=com.local-shazam.deploy
+target="/Library/LaunchDaemons/$label.plist"
+
+plutil -lint "deploy/$label.plist"
+sudo install -m 644 -o root -g wheel "deploy/$label.plist" "$target"
+sudo launchctl bootout "system/$label" 2>/dev/null || true
+sudo launchctl bootstrap system "$target"
+echo "installed $target; log: ~/Library/Logs/local-shazam-deploy.log"
