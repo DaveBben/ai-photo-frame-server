@@ -24,6 +24,7 @@ The actual cause is that the fast machine gives up its speed whenever requests a
 2. **Flux runs in its own process, separate from the API server.** `Flux2Client` keeps making an HTTP call and only the host changes. The Flux process can be restarted without stopping the API server (F13).
 3. **The model stays loaded between requests.** `Flux2KleinEdit` loads its weights on the first `generate_image` call, so the process makes that call once at startup and holds the model after it (F11).
 4. **The Flux process answers the OpenAI images format.** It takes `POST /v1/images/edits` as multipart with the photo as a file and the prompt as a form field, and returns JSON with the PNG as base64 in `data[0].b64_json`. `llama-swap` on ai-server answers the same request (F23), so pointing `Flux2Client` at ai-server later is a URL change.
+5. **The Flux process's code lives in this repo.** It is its own module with its own start command, and `mflux` is installed only on macOS through a `sys_platform == 'darwin'` marker, because no `mflux>=0.16` install resolves for Linux x86_64, where CI and the `Dockerfile` build. An import rule in `pyproject.toml` keeps the Flux module and the API server from importing each other.
 
 ## What it buys
 
@@ -41,6 +42,7 @@ A restyle for a cached song takes about 38.5s whether the last request was a min
 
 - **ai-server with `ttl: 120`**: a restyle after two idle minutes takes 58.1s, and a new song on top of that goes to about 87s.
 - **ai-server with a longer `ttl`**: keeps 18.6GB of the 3090 Ti away from the models that share it.
+- **A separate repo for the Flux process**: keeps `mflux` out of this repo's lock file, but a change to the request format would need two pull requests merged in step, with no test covering both sides.
 - **A JSON endpoint of our own returning PNG bytes**: fewer lines in the client and the Flux process, but moving image generation to ai-server would mean rewriting `Flux2Client` again.
 
 **Detector:** none yet. No test asserts which host makes the image or how long a restyle takes.
