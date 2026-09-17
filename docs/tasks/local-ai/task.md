@@ -15,10 +15,9 @@ Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_
            Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
            Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
            API server gets restyled images from FLUX_BASE_URL (default 127.0.0.1:8081), 502 on Flux failure, no retries, no BFL key: tests/test_transform_route.py, tests/test_local_flux_config.py, tests/test_flux_client_single_attempt.py; on the Mac mini: tests/macmini/test_flux_client.py.
+           Captions, song looks (iTunes cover) and edit prompts from VLM_BASE_URL, 502 on vision model failure, no retries, no keys: tests/test_upload_route.py, test_aesthetic_route.py, test_transform_route.py, test_local_vlm_config.py, test_vlm_requests.py, test_itunes_incomplete_answer.py, test_pipeline_gaps.py; on the Mac mini: tests/macmini/test_restyle_on_mac_mini.py.
            Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
-Slices:    B. Captions, song looks from the album cover, and edit prompts all come from the local vision model (old items 4, 5 and 6: OpenAIClient points at one server, so moving captions and prompts first would break the song look lookup in between).
-           C. Start the server with no OpenAI or Black Forest Labs key set.
-           D. The API server runs on the Mac mini and restarts after a reboot; a full restyle from the laptop over HTTP finishes within 60s. Pointing the frame's client at the Mac mini is a change in ai-photo-frame-client, left to the user.
+Slices:    D. The API server runs on the Mac mini and restarts after a reboot; a full restyle from the laptop over HTTP finishes within 60s. Pointing the frame's client at the Mac mini is a change in ai-photo-frame-client, left to the user.
            Reordered 2026-09-17 by the agent, which the user asked to finish the remaining items alone: each item can now be tested against the Mac mini without paid API keys.
 
 ## Plan
@@ -36,6 +35,7 @@ Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_
            Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
            Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
            API server gets restyled images from FLUX_BASE_URL (default 127.0.0.1:8081), 502 on Flux failure, no retries, no BFL key: tests/test_transform_route.py, tests/test_local_flux_config.py, tests/test_flux_client_single_attempt.py; on the Mac mini: tests/macmini/test_flux_client.py.
+           Captions, song looks (iTunes cover) and edit prompts from VLM_BASE_URL, 502 on vision model failure, no retries, no keys: tests/test_upload_route.py, test_aesthetic_route.py, test_transform_route.py, test_local_vlm_config.py, test_vlm_requests.py, test_itunes_incomplete_answer.py, test_pipeline_gaps.py; on the Mac mini: tests/macmini/test_restyle_on_mac_mini.py.
            Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
 Slices:    3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
            4. Look up a new song's look from its album cover.
@@ -117,3 +117,17 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Decided: timeout 300s per edit. Tradeoff: a hung Flux server holds the frame's request for 5 minutes before a 502; no test pins it.
 - Decided: every photo is sent as photo.jpg, image/jpeg, because pipeline.transform passes only base64 bytes. Tradeoff: a PNG upload is mislabelled; flux_server.py reads neither the name nor the type.
 - Decided: httpx stays a runtime dependency although no src module imports it now. Tradeoff: one redundant line in pyproject.toml; openai depends on httpx anyway.
+
+## 2026-09-17 — Captions, song looks and edit prompts from the local vision model
+- Done: OpenAIClient(VLM_BASE_URL) sends captions, edit prompts and song looks to mlx_vlm.server's Qwen3-VL-4B; a song look reads the iTunes album cover and catalog facts (ItunesClient), treating any iTunes failure or incomplete answer as no catalog data; OPENAI_API_KEY and the startup key check are gone, so item C is folded in.
+- By hand: none. The agent wrote the criterion and table at the user's request.
+- Observed: not yet. Signal: once item D runs the API server on the Mac mini, the frame shows a restyled photo with no key set. Before merge, tests/macmini/test_restyle_on_mac_mini.py passed from the laptop against the Mac mini's servers in 124s (upload, cold song look, two restyles; the second under 60s).
+- Accepted: b8a2fa4 (corrected by 91252b6)
+- Learned: **ImageStore.save_described writes only EXIF tag 270**, so the GPS, date and camera lines the edit prompt was built from never ran for an uploaded photo; they were deleted from pipeline.py. extract_image_metadata in image_store.py still parses them for nothing.
+- Learned: **a changed src file puts every one of its lines under CI's mutation step**, so each item here also tested or deleted older untested lines (log calls, a one-key list join, FastAPI title, unused defaults). Hand mutations locally must delete __pycache__ and set PYTHONDONTWRITEBYTECODE=1: a same-size restore in the same second reused a stale .pyc and gave false reds.
+- Learned: **the red run for item B hid a wrong test**: tests/test_local_flux_config.py restyled an uncached song without mocking iTunes, and startup failing on the missing key masked respx's AllMockedAssertionError. Corrected in 91252b6.
+- Decided: an iTunes failure, empty result, missing field or non-JSON body all mean "No catalog data found." Tradeoff: a malformed iTunes answer is silent.
+- Decided: vision model timeout 120s, no retries. Tradeoff: a cold model load over 120s returns 502.
+- Decided: logging of prompts and replies removed from openai_client.py. Tradeoff: less to read when a caption or look is poor.
+- Decided: captions use Pillow's default thumbnail filter instead of LANCZOS. Tradeoff: slightly different pixels; caption quality not compared.
+- Decided: openapi.yaml still says GPT-4o in two descriptions, and OpenAIClient keeps its name. Tradeoff: names that no longer match what runs; a rename is its own change.
