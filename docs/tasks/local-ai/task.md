@@ -37,6 +37,7 @@ Slices:    1. Caption an image with the vision model server on the Mac mini, and
 ## 2026-09-16 — Boot deploy waits for the network
 - Done: deploy/com.local-shazam.deploy.plist sets KeepAlive with SuccessfulExit false and ThrottleInterval 30, so launchd reruns scripts/deploy every 30s after a failed exit and stops after the first success.
 - Observed: not yet. Signal: after `scripts/install-mac-mini` is rerun and the Mac mini restarts, ~/Library/Logs/local-shazam-deploy.log shows any "Could not resolve host" lines followed by a "deployed" line from that boot.
+- Observed: seen 2026-09-16. After reinstall and a restart, the log showed "Could not resolve host: github.com" and then "deployed 926cb59"; `launchctl print system/com.local-shazam.deploy` showed runs = 2, last exit code = 0.
 - Accepted: 8a3fc01
 - Decided: a deploy that fails for a lasting reason, such as local commits blocking the fast-forward, retries every 30s until fixed. Tradeoff: one git fetch and a few log lines every 30s while it is broken.
 - Decided: ThrottleInterval is 30s. Tradeoff: a boot waits up to 30s past the network coming up before deploying.
