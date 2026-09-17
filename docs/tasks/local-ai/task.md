@@ -14,9 +14,9 @@ Deferred:  none yet.
 Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_deploy.py.
            Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
            Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
+           API server gets restyled images from FLUX_BASE_URL (default 127.0.0.1:8081), 502 on Flux failure, no retries, no BFL key: tests/test_transform_route.py, tests/test_local_flux_config.py, tests/test_flux_client_single_attempt.py; on the Mac mini: tests/macmini/test_flux_client.py.
            Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
-Slices:    A. Restyle a photo with the image made by the local Flux server (Flux2Client calls POST /v1/images/edits on the Mac mini).
-           B. Captions, song looks from the album cover, and edit prompts all come from the local vision model (old items 4, 5 and 6: OpenAIClient points at one server, so moving captions and prompts first would break the song look lookup in between).
+Slices:    B. Captions, song looks from the album cover, and edit prompts all come from the local vision model (old items 4, 5 and 6: OpenAIClient points at one server, so moving captions and prompts first would break the song look lookup in between).
            C. Start the server with no OpenAI or Black Forest Labs key set.
            D. The API server runs on the Mac mini and restarts after a reboot; a full restyle from the laptop over HTTP finishes within 60s. Pointing the frame's client at the Mac mini is a change in ai-photo-frame-client, left to the user.
            Reordered 2026-09-17 by the agent, which the user asked to finish the remaining items alone: each item can now be tested against the Mac mini without paid API keys.
@@ -35,6 +35,7 @@ Deferred:  none yet.
 Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_deploy.py.
            Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
            Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
+           API server gets restyled images from FLUX_BASE_URL (default 127.0.0.1:8081), 502 on Flux failure, no retries, no BFL key: tests/test_transform_route.py, tests/test_local_flux_config.py, tests/test_flux_client_single_attempt.py; on the Mac mini: tests/macmini/test_flux_client.py.
            Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
 Slices:    3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
            4. Look up a new song's look from its album cover.
@@ -104,3 +105,15 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Decided: one module-level executor plus a fork hook. Tradeoff: one line of production code exists only for mutmut's forking.
 - Decided: the install script's wait loop gives up silently after 30s and lets bootstrap fail. Tradeoff: a stuck job shows launchctl's own "Input/output error" instead of a message naming the job.
 - Not caught by: the Flux server tests faked the model, and a fake has no thread affinity; the review applied the table's mutations by hand and ran nothing on the Mac mini before merge. tests/test_flux_server_thread.py now asserts one thread; the Mac mini test now runs against the real server before a Flux change is merged.
+
+## 2026-09-17 — Restyle with the image from the local Flux server
+- Done: Flux2Client(base_url) sends the photo and prompt to {FLUX_BASE_URL}/images/edits through the openai package and returns the PNG; failures become 502 "Flux server failed: ..."; BFL_API_KEY and the BFL polling client are gone.
+- By hand: none. The agent wrote the criterion and table at the user's request.
+- Observed: not yet. Signal: the frame shows a restyled photo once item D runs the API server on the Mac mini; until then tests/macmini/test_flux_client.py passing against the Mac mini (22.8s) is the only real call.
+- Accepted: 3c0523d
+- Learned: **the openai package retries a 500 or a connection error twice by default**, so a failed 25-40s edit would have been sent three times. max_retries=0, pinned by tests/test_flux_client_single_attempt.py.
+- Learned: **an AsyncOpenAI client kept on the Flux2Client instance left its socket open, and filterwarnings=error turned the ResourceWarning into a failure of the macmini row**. The client is opened and closed per edit.
+- Learned: **mutmut segfaults on this machine for flux2_client.py and server.py too**, not only pipeline.py; the review applied every row's mutation by hand. Not pinned; CLAUDE.md's Mutation Testing note covers pipeline.py only.
+- Decided: timeout 300s per edit. Tradeoff: a hung Flux server holds the frame's request for 5 minutes before a 502; no test pins it.
+- Decided: every photo is sent as photo.jpg, image/jpeg, because pipeline.transform passes only base64 bytes. Tradeoff: a PNG upload is mislabelled; flux_server.py reads neither the name nor the type.
+- Decided: httpx stays a runtime dependency although no src module imports it now. Tradeoff: one redundant line in pyproject.toml; openai depends on httpx anyway.
