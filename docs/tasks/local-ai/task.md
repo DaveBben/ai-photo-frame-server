@@ -15,6 +15,27 @@ Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_
            Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
            Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
            Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
+Slices:    A. Restyle a photo with the image made by the local Flux server (Flux2Client calls POST /v1/images/edits on the Mac mini).
+           B. Captions, song looks from the album cover, and edit prompts all come from the local vision model (old items 4, 5 and 6: OpenAIClient points at one server, so moving captions and prompts first would break the song look lookup in between).
+           C. Start the server with no OpenAI or Black Forest Labs key set.
+           D. The API server runs on the Mac mini and restarts after a reboot; a full restyle from the laptop over HTTP finishes within 60s. Pointing the frame's client at the Mac mini is a change in ai-photo-frame-client, left to the user.
+           Reordered 2026-09-17 by the agent, which the user asked to finish the remaining items alone: each item can now be tested against the Mac mini without paid API keys.
+
+## Plan
+Outcome:   When a song plays, the frame shows my photo restyled for that song within 60 seconds, no request goes to OpenAI or Black Forest Labs, and I pay no API bill.
+Problem:   The frame's owner pays OpenAI for every photo upload, new song lookup and edit prompt, and Black Forest Labs for every restyled image. SPIKE_FINDINGS.md shows the same pipeline running on the Mac mini in 38.5s once a song's aesthetic is cached.
+Not doing: No change to any route's request or response in openapi.yaml; the Pi client keeps its synchronous HTTP call.
+           No queue or lock for two restyle requests arriving at once.
+Decided:   REST over FastAPI, one API server process: src/local_shazam/api/routes.py, openapi.yaml.
+           Storage stays as image files plus the SQLite aesthetic cache: image_store.py, aesthetic_cache.py.
+           Model calls go only through pipeline.py, and no interface class sits in front of a client: docs/adr/architecture/split-api-pipeline-and-clients.md.
+           Python 3.13 for the API server: pyproject.toml.
+           Flux runs on the Mac mini in its own process on 0.0.0.0:8081, answering the OpenAI images format, with its code in this repo; the API server moves from ai-server to the Mac mini; every process there starts from a LaunchDaemon: docs/adr/local-ai/generate-restyled-images-on-the-mac-mini.md.
+Deferred:  none yet.
+Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_deploy.py.
+           Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
+           Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
+           Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
 Slices:    3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
            4. Look up a new song's look from its album cover.
            5. Restyle a photo with the edit prompt written by the local vision model.
@@ -57,6 +78,7 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Done: local-shazam-flux serves POST /v1/images/edits in the OpenAI images format on 0.0.0.0:8081, shrinking the photo to 512px, generating at 3 steps behind one lock, after one warm-up generation at startup; deploy/com.local-shazam.flux.plist keeps it running; scripts/install-mac-mini installs three LaunchDaemons.
 - By hand: none: the user asked the agent to write it and skipped the merge description.
 - Observed: not yet. Signal: after deploy, reinstall and a restart of the Mac mini, `uv run pytest -m macmini` passes, including the second edit under 46.6s, and `top -l 1 | grep PhysMem` on the Mac mini shows free memory with both models loaded.
+- Observed: failed 2026-09-17. After deploying dc730e6 the LaunchDaemon's server exited at startup with "RuntimeError: There is no Stream(cpu, 0) in current thread" (exit code 3, three runs); fixed by the next entry.
 - Accepted: 1e68ba9
 - Learned: **the edit guard refuses every file the red commit changed, and the red commit included a stub in src/**, so the build agent could not replace the stub and the user had to clear agile.redCommit before the build could land. Red commits now hold test files only; stubs go in a separate commit.
 - Learned: **tests/test_flux_server.py and tests/macmini/test_flux_server.py shared a basename with no __init__.py in either directory**, so pytest imported both as module test_flux_server and every run stopped at collection. tests/macmini/__init__.py makes the second one macmini.test_flux_server. Caught by the turn-end hook.
@@ -66,3 +88,17 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Decided: the reference is converted to RGB and saved as PNG in a temporary directory, so a CMYK JPEG does not fail. Tradeoff: no test covers CMYK or truncated uploads.
 - Decided: size parsing accepts "0x480" or "-5x3" and passes them to mflux. Tradeoff: those get whatever error mflux raises instead of a 400.
 - Decided: mypy ignores missing imports for mflux.*, because mflux ships no type information and does not install on Linux. Tradeoff: calls into mflux are untyped.
+
+## 2026-09-17 — Bug: Flux server crashes at startup on the Mac mini
+- Done: flux_server.py builds the model and runs every generation on one module-level single-worker ThreadPoolExecutor; scripts/install-mac-mini waits up to 30s for launchctl bootout to finish before bootstrap.
+- By hand: none. The user asked the agent to write the criterion and table and to merge.
+- Observed: not yet. Signal: after deploy and reinstall, `launchctl print system/com.local-shazam.flux` shows the server running and `uv run pytest -m macmini` passes.
+- Accepted: 828df6f
+- Learned: **MLX 0.32.2 raises "There is no Stream(cpu, 0) in current thread" when a graph built on one thread is evaluated on another**, and main() built Flux2KleinEdit on the main thread while anyio ran generations on pool threads. Reproduced with plain mlx on the Mac mini. Pinned by tests/test_flux_server_thread.py.
+- Learned: **mutmut 3.8.0 forks a child per mutant after the parent has started the executor's thread, and a forked executor has no thread**, so every submit waited and all 49 mutants timed out. os.register_at_fork gives each child a new executor.
+- Learned: **`launchctl bootout` returns before the job is gone**, so an immediate `launchctl bootstrap` failed with "Bootstrap failed: 5: Input/output error" and left com.local-shazam.vlm unloaded until it was bootstrapped by hand. Not pinned by a test.
+- Learned: **mutmut copies only src/ and tests/ into mutants/**, so tests/test_deploy.py failed in CI's mutation step the first time a PR changed src/. pyproject.toml's [tool.mutmut] also_copy adds scripts/ and deploy/.
+- Learned: **with the vision model server and the Flux server both loaded and generating, the Mac mini had 162MB free and 6.9GB compressed**; two edits still took 27.9s and 24.5s.
+- Decided: one module-level executor plus a fork hook. Tradeoff: one line of production code exists only for mutmut's forking.
+- Decided: the install script's wait loop gives up silently after 30s and lets bootstrap fail. Tradeoff: a stuck job shows launchctl's own "Input/output error" instead of a message naming the job.
+- Not caught by: the Flux server tests faked the model, and a fake has no thread affinity; the review applied the table's mutations by hand and ran nothing on the Mac mini before merge. tests/test_flux_server_thread.py now asserts one thread; the Mac mini test now runs against the real server before a Flux change is merged.
