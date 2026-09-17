@@ -9,7 +9,7 @@ Decided:   REST over FastAPI, one API server process: src/local_shazam/api/route
            Storage stays as image files plus the SQLite aesthetic cache: image_store.py, aesthetic_cache.py.
            Model calls go only through pipeline.py, and no interface class sits in front of a client: docs/adr/architecture/split-api-pipeline-and-clients.md.
            Python 3.13 for the API server: pyproject.toml.
-           Flux runs on the Mac mini in its own process, answering the OpenAI images format, with its code in this repo: docs/adr/local-ai/generate-restyled-images-on-the-mac-mini.md.
+           Flux runs on the Mac mini in its own process, answering the OpenAI images format, with its code in this repo; the API server moves from ai-server to the Mac mini: docs/adr/local-ai/generate-restyled-images-on-the-mac-mini.md.
 Deferred:  none yet.
 Slices:    1. Restyle a photo with the image made by a local Flux model.
            2. Look up a new song's look from its album cover.
