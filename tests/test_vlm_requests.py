@@ -173,8 +173,8 @@ async def test_song_missing_from_itunes_sends_no_catalog_data_as_its_own_line(
 async def test_itunes_facts_are_the_matched_tracks_catalog_lines() -> None:
     track = {
         **ITUNES_TRACK,
-        "trackName": "bad guy (with Justin Bieber)",
-        "artistName": "Billie Eilish & Justin Bieber",
+        "trackName": "Bad Guy",
+        "artistName": "BILLIE EILISH & Justin Bieber",
     }
     with respx.mock() as mock:
         mock.get(ITUNES_SEARCH).respond(
@@ -186,8 +186,8 @@ async def test_itunes_facts_are_the_matched_tracks_catalog_lines() -> None:
     assert found is not None
     facts, cover = found
     assert facts.splitlines() == [
-        "Track: bad guy (with Justin Bieber)",
-        "Artist: Billie Eilish & Justin Bieber",
+        "Track: Bad Guy",
+        "Artist: BILLIE EILISH & Justin Bieber",
         "Album: WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?",
         "Genre: Alternative",
         "Released: 2019-03-29",
