@@ -36,34 +36,43 @@ Set these environment variables (or use `.env` file):
 | `LOG_LEVEL` | No | `INFO` | Logging level |
 | `DATA_DIR` | No | `data/` in the repo | Stored images and the aesthetic cache |
 
+## Mac mini
+
+First-time setup:
+
+```bash
+ssh mini git clone https://github.com/DaveBben/ai-photo-frame-server ~/ai-photo-frame-server
+ssh -t mini ~/ai-photo-frame-server/scripts/install-mac-mini
+```
+
+Deploy after a merge to main (pulls main, syncs dependencies, restarts the API server):
+
+```bash
+ssh mini ~/ai-photo-frame-server/scripts/deploy
+```
+
+`install-mac-mini` installs four LaunchDaemons, each running as `dave`:
+
+| LaunchDaemon | Runs | Port | Log |
+|--------------|------|------|-----|
+| `com.local-shazam.api` | API server (`local-shazam-server`) | 8000 | `~/Library/Logs/local-shazam-api.log` |
+| `com.local-shazam.vlm` | Vision model server (`mlx_vlm.server`) | 8080 | `~/Library/Logs/local-shazam-vlm.log` |
+| `com.local-shazam.flux` | Flux server (`local-shazam-flux`) | 8081 | `~/Library/Logs/local-shazam-flux.log` |
+| `com.local-shazam.deploy` | `scripts/deploy` at boot | - | `~/Library/Logs/local-shazam-deploy.log` |
+
+Check the Mac mini from the laptop (`API_URL` overrides `http://davids-mac-mini.local:8000`):
+
+```bash
+uv run pytest -m macmini
+```
+
 ## Development
 
 ```bash
-# Install dependencies
-uv sync
-
-# Run tests
-uv run pytest
-
-# Run tests with coverage
-uv run pytest --cov
-
-# Type checking
-uv run mypy src
-
-# Linting and formatting
-uv run ruff check src tests
-uv run ruff format src tests
-
-# Run the CLI
-uv run local-shazam
-
-# Install pre-commit hooks
-uv run pre-commit install
+uv sync                      # install dependencies
+uv run local-shazam-server   # run the API server
+uv run pre-commit install    # install the commit hook
+./check                      # format, lint, type check, tests
 ```
 
-## Before Creating PR
-
-```bash
-uv run ruff check src && uv run mypy src && uv run pytest
-```
+Run `./check` before creating a PR.

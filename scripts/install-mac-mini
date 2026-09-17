@@ -3,12 +3,13 @@
 #   com.local-shazam.deploy  runs scripts/deploy at every boot
 #   com.local-shazam.vlm     keeps mlx_vlm.server running on 0.0.0.0:8080
 #   com.local-shazam.flux    keeps local-shazam-flux (Flux.2 Klein edits) running on 0.0.0.0:8081
+#   com.local-shazam.api     keeps local-shazam-server (the API server) running on 0.0.0.0:8000
 # Run on the Mac mini from the checkout at ~/ai-photo-frame-server:
 #   ssh -t mini ~/ai-photo-frame-server/scripts/install-mac-mini
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-for label in com.local-shazam.deploy com.local-shazam.vlm com.local-shazam.flux; do
+for label in com.local-shazam.deploy com.local-shazam.vlm com.local-shazam.flux com.local-shazam.api; do
   target="/Library/LaunchDaemons/$label.plist"
   plutil -lint "deploy/$label.plist"
   sudo install -m 644 -o root -g wheel "deploy/$label.plist" "$target"

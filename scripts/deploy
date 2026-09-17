@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Bring this checkout to the newest commit on main and install its dependencies.
+# Bring this checkout to the newest commit on main, install its dependencies and
+# restart the API server so it runs that code.
 # The Mac mini's LaunchDaemon runs this at boot; run it by hand after a merge:
 #   ssh mini ~/ai-photo-frame-server/scripts/deploy
 set -euo pipefail
@@ -11,4 +12,7 @@ git fetch -q origin main
 git checkout -q main
 git merge -q --ff-only origin/main
 uv sync --locked
+# The API server's LaunchDaemon (KeepAlive) starts it again. The vision model and
+# Flux servers keep running: each reload spends minutes loading its model.
+pkill -f "$PWD/.venv/bin/local-shazam-server" || true
 echo "deployed $(git rev-parse --short HEAD)"
