@@ -178,3 +178,13 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Decided: exact title and contained artist, no fuzzy matching. Tradeoff: a title or artist written differently from iTunes ("Guess (feat. Billie Eilish)" against "Guess featuring Billie Eilish", "Lady Gaga, Bruno Mars" against "Lady Gaga & Bruno Mars") gets "No catalog data found." where results[0] often had the right cover.
 - Decided: a miss makes up to three iTunes requests before the cover, each with httpx's default 5s timeout per phase. Tradeoff: a slow miss adds seconds to a new song's look.
 - Not caught by: the item B tables faked iTunes with the right song first, and the macmini tests used songs whose top result is correct. The row above now fakes a wrong top result.
+
+## 2026-09-17 — Closest iTunes match by word overlap
+- Done: ItunesClient picks the track that shares a title word and an artist word with the request and has the highest title-plus-artist word overlap (Jaccard over Unicode letter and digit runs, ignoring case and feat/featuring/ft/with/and/the/a), at least 0.5, earlier result on a tie; search results first, then the artist's catalog.
+- By hand: none. The user asked for word overlap; the agent wrote the rule, criterion and table.
+- Observed: not yet. Signal: a song whose Shazam title or artist differs from iTunes (e.g. "Guess (feat. Billie Eilish)") gets its album cover on the frame.
+- Accepted: 477075d
+- Learned: **with only a threshold, a one-word title by the same artist scored exactly 0.5 against "365" / "Charli XCX" ("Apple" on BRAT, live)** and blocked the catalog fallback; requiring a shared title word fixed it. Pinned by tests/test_itunes_closest_match_gaps.py::test_enough_overlap_without_a_shared_title_word_is_no_match.
+- Learned: **splitting words on [0-9a-z] gave Cyrillic and Japanese titles no words**, so "Кукушка" / "Kino" and "夜に駆ける" / "YOASOBI" found nothing; the review changed it to [^\W_]+. Pinned by test_title_in_a_non_latin_script_matches.
+- Decided: a qualifying search result stops the lookup before the artist's catalog. Tradeoff: "Creep" / "Radiohead" gets "Creep (Acoustic)" from Creep - EP, because iTunes search lists no plain Creep; reading the catalog on every imperfect match costs two more requests.
+- Decided: an artist sharing a word with the request qualifies. Tradeoff: "Hello (Live)" / "Adele" picks "Hello (Live)" by "Hello Adele Tribute" (3 of 4 words over Adele's 2 of 3); the exact-title rule picked the same.
