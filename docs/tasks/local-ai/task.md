@@ -12,7 +12,8 @@ Decided:   REST over FastAPI, one API server process: src/local_shazam/api/route
            Flux runs on the Mac mini in its own process on 0.0.0.0:8081, answering the OpenAI images format, with its code in this repo; the API server moves from ai-server to the Mac mini; every process there starts from a LaunchDaemon: docs/adr/local-ai/generate-restyled-images-on-the-mac-mini.md.
 Deferred:  none yet.
 Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_deploy.py.
-Slices:    1. Caption an image with the vision model server on the Mac mini, and have it still answer after a reboot.
+Slices:    Bug: after a restart, the Mac mini deploys main even when the network is not up when the LaunchDaemon starts.
+           1. Caption an image with the vision model server on the Mac mini, and have it still answer after a reboot.
            2. Edit an image with the Flux server on the Mac mini, and have it still answer after a reboot.
            3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
            4. Look up a new song's look from its album cover.
@@ -23,6 +24,7 @@ Slices:    1. Caption an image with the vision model server on the Mac mini, and
 ## 2026-09-16 — Latest main on the Mac mini
 - Done: scripts/deploy fast-forwards the checkout to origin main and runs uv sync --locked; a LaunchDaemon (deploy/com.local-shazam.deploy.plist) runs it as dave at every boot, installed by scripts/install-mac-mini.
 - Observed: not yet. Signal: after a restart of the Mac mini, `ssh mini git -C ~/ai-photo-frame-server log -1` shows main's newest commit and ~/Library/Logs/local-shazam-deploy.log has a "deployed" line from that boot.
+- Observed: seen 2026-09-16, and the boot deploy failed. The install run logged "deployed 881de91"; after the restart the LaunchDaemon's run logged "Could not resolve host: github.com" and exited, so the checkout was current only because of the install run.
 - Accepted: 5abae03
 - Learned: **FileVault on the Mac mini keeps the disk locked after a restart until someone types a password, so no LaunchDaemon can start before that**; the user turned FileVault off. docs/adr/local-ai/generate-restyled-images-on-the-mac-mini.md, item 9.
 - Learned: **a non-interactive `ssh mini <command>` and launchd both run without ~/.local/bin on PATH, where uv is installed**, so scripts/deploy adds it itself. Not pinned: the test runs uv from the test machine's PATH.
