@@ -1,13 +1,18 @@
-"""POST /images through the real app, with only the OpenAI and BFL web APIs faked.
+"""POST /images through the real app, with the OpenAI web API and the Mac mini's Flux server faked.
 
-Slice: Transform a photo (docs/tasks/restructure-layers/task.md).
-Acceptance: POST /images returns identical responses before and after the move.
+Slice: Transform a photo (docs/tasks/restructure-layers/task.md), then Restyle a photo
+with the image made by the local Flux server (docs/tasks/local-ai/task.md, item A).
+Acceptance (item A): Given a stored photo and a cached song aesthetic, WHEN the frame
+posts /images, THEN it gets back the PNG the Flux server at FLUX_BASE_URL made, and no
+request goes to api.bfl.ai.
 """
 
 import base64
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from email.parser import BytesParser
+from email.policy import HTTP
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
@@ -27,9 +32,7 @@ EDIT_PROMPT = "Relight the scene with a lime green overhead strobe."
 PNG = b"PNG1"
 
 OPENAI_CHAT = "https://api.openai.com/v1/chat/completions"
-BFL_SUBMIT = "https://api.bfl.ai/v1/flux-2-klein-9b"
-BFL_POLL = "https://api.bfl.ai/v1/get_result?id=job-1"
-BFL_SAMPLE = "https://delivery.bfl.ai/job-1/sample.png"
+FLUX_EDITS = "http://127.0.0.1:8081/v1/images/edits"
 SEARCH_MODEL = "gpt-4o-search-preview"
 
 
@@ -52,6 +55,18 @@ def _chat_reply(content: str) -> httpx.Response:
     )
 
 
+def _form_fields(request: httpx.Request) -> dict[str, bytes]:
+    """Split a multipart/form-data request into its fields' raw bytes."""
+    head = f"Content-Type: {request.headers['content-type']}\r\n\r\n".encode()
+    message = BytesParser(policy=HTTP).parsebytes(head + request.content)
+    return {
+        str(part.get_param("name", header="content-disposition")): part.get_payload(
+            decode=True
+        )
+        for part in message.iter_parts()
+    }
+
+
 @dataclass
 class Frame:
     """The app as the photo frame sees it, plus every request sent to the fakes."""
@@ -60,7 +75,7 @@ class Frame:
     mock: respx.MockRouter
     image_id: str = ""
     openai_requests: list[dict[str, object]] = field(default_factory=list)
-    bfl_submits: list[dict[str, object]] = field(default_factory=list)
+    flux_edits: list[dict[str, bytes]] = field(default_factory=list)
 
     async def transform(self, image_id: str | None = None) -> httpx.Response:
         return await self.client.post(
@@ -79,7 +94,7 @@ async def frame(
 ) -> AsyncIterator[Frame]:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("BFL_API_KEY", "bfl-test")
+    monkeypatch.delenv("FLUX_BASE_URL", raising=False)
 
     app = create_app()
     transport = httpx.ASGITransport(app=app)
@@ -99,16 +114,18 @@ async def frame(
                     return _chat_reply(EDIT_PROMPT)
                 return _chat_reply(DESCRIPTION)
 
-            def bfl_submit(request: httpx.Request) -> httpx.Response:
-                recorded.bfl_submits.append(json.loads(request.content))
-                return httpx.Response(200, json={"polling_url": BFL_POLL})
+            def flux_edit(request: httpx.Request) -> httpx.Response:
+                recorded.flux_edits.append(_form_fields(request))
+                return httpx.Response(
+                    200,
+                    json={
+                        "created": 0,
+                        "data": [{"b64_json": base64.b64encode(PNG).decode()}],
+                    },
+                )
 
             mock.post(OPENAI_CHAT).mock(side_effect=openai)
-            mock.post(BFL_SUBMIT, name="bfl_submit").mock(side_effect=bfl_submit)
-            mock.get(BFL_POLL).respond(
-                200, json={"status": "Ready", "result": {"sample": BFL_SAMPLE}}
-            )
-            mock.get(BFL_SAMPLE).respond(200, content=PNG)
+            mock.post(FLUX_EDITS, name="flux_edit").mock(side_effect=flux_edit)
 
             photo = BytesIO()
             Image.new("RGB", (64, 48), "red").save(photo, format="JPEG")
@@ -150,10 +167,10 @@ async def test_edit_request_carries_written_prompt_and_uploaded_photo(
 ) -> None:
     await frame.transform()
 
-    assert len(frame.bfl_submits) == 1
-    submit = frame.bfl_submits[0]
-    assert submit["prompt"] == EDIT_PROMPT
-    sent = Image.open(BytesIO(base64.b64decode(str(submit["input_image"]))))
+    assert len(frame.flux_edits) == 1
+    fields = frame.flux_edits[0]
+    assert fields["prompt"].decode() == EDIT_PROMPT
+    sent = Image.open(BytesIO(fields["image"]))
     assert sent.size == (64, 48)
     assert sent.getexif()[270] == DESCRIPTION
 
@@ -164,16 +181,25 @@ async def test_cached_aesthetic_sends_no_search_request(frame: Frame) -> None:
     assert [r for r in frame.openai_requests if r["model"] == SEARCH_MODEL] == []
 
 
-async def test_out_of_credits_returns_502_with_reason(frame: Frame) -> None:
-    frame.mock.routes["bfl_submit"].mock(
+async def test_flux_server_error_returns_502_with_reason(frame: Frame) -> None:
+    frame.mock.routes["flux_edit"].mock(
         side_effect=None,
-        return_value=httpx.Response(402, json={"detail": "no credits"}),
+        return_value=httpx.Response(500, json={"detail": "out of memory"}),
     )
 
     response = await frame.transform()
 
     assert response.status_code == 502
-    assert response.json() == {"detail": "Insufficient BFL credits"}
+    assert response.json()["detail"].startswith("Flux server failed:")
+
+
+async def test_unreachable_flux_server_returns_502_with_reason(frame: Frame) -> None:
+    frame.mock.routes["flux_edit"].mock(side_effect=httpx.ConnectError("refused"))
+
+    response = await frame.transform()
+
+    assert response.status_code == 502
+    assert response.json()["detail"].startswith("Flux server failed:")
 
 
 async def test_unknown_photo_returns_404(frame: Frame) -> None:

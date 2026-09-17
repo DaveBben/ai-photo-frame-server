@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     Attributes:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-        bfl_api_key: Black Forest Labs API key for Flux.2 image generation.
+        flux_base_url: Base URL of the Flux server's OpenAI images API.
         openai_api_key: OpenAI API key for GPT-4o vision and chat.
         server_host: Host address to bind the server to.
         server_port: Port number for the HTTP server.
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     )
 
     log_level: str = "INFO"
-    bfl_api_key: str = ""
+    flux_base_url: str = "http://127.0.0.1:8081/v1"
     openai_api_key: str = ""
 
     # Server settings

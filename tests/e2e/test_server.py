@@ -27,7 +27,6 @@ def server_url() -> Iterator[str]:
         **os.environ,
         "SERVER_HOST": "127.0.0.1",
         "SERVER_PORT": str(port),
-        "BFL_API_KEY": "e2e-unused",
         "OPENAI_API_KEY": "e2e-unused",
     }
     proc = subprocess.Popen(  # noqa: S603

@@ -24,15 +24,8 @@ log = get_logger(__name__)
 
 def _validate_settings(settings: Settings) -> None:
     """Validate required settings at startup."""
-    missing = []
-    if not settings.bfl_api_key:
-        missing.append("BFL_API_KEY")
     if not settings.openai_api_key:
-        missing.append("OPENAI_API_KEY")
-    if missing:
-        raise RuntimeError(
-            f"Missing required environment variables: {', '.join(missing)}"
-        )
+        raise RuntimeError("Missing required environment variables: OPENAI_API_KEY")
 
 
 @asynccontextmanager
@@ -47,7 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.image_store = ImageStore(settings.data_dir / "img")
     app.state.aesthetic_cache = AestheticCache(settings.data_dir / "aesthetic_cache.db")
     app.state.openai_client = OpenAIClient(settings.openai_api_key)
-    app.state.flux_client = Flux2Client(settings.bfl_api_key)
+    app.state.flux_client = Flux2Client(settings.flux_base_url)
     log.info("Server initialized")
 
     yield
@@ -57,11 +50,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    app = FastAPI(
-        title="local-shazam",
-        description="Image transformation server",
-        lifespan=lifespan,
-    )
+    app = FastAPI(lifespan=lifespan)
     app.include_router(http_router)
     return app
 
@@ -69,8 +58,6 @@ def create_app() -> FastAPI:
 def main() -> None:
     """Entry point for the server."""
     settings = Settings()
-    setup_root_logger(level=settings.log_level)
-
     uvicorn.run(
         "local_shazam.server:create_app",
         factory=True,

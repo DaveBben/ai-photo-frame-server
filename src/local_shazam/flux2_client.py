@@ -1,92 +1,49 @@
-"""BFL (Black Forest Labs) API client for Flux.2 image generation."""
+"""Client for the Flux server on the Mac mini, which answers the OpenAI images format."""
 
-import anyio
-import httpx
+import base64
+
+import openai
+from openai import AsyncOpenAI
 
 from local_shazam.exceptions import ServiceError
 
-_BASE_URL = "https://api.bfl.ai"
-_POLL_INTERVAL_S = 0.5
-_POLL_TIMEOUT_S = 120.0
+# An edit takes 25-40s. A cold start after a restart loads weights first.
+_TIMEOUT_S = 300.0
+# The Flux server reads neither the key nor the upload's name and type, but the
+# openai package requires a key; changing these strings changes nothing.
+_API_KEY = "unused"  # pragma: no mutate
+_UPLOAD_NAME, _UPLOAD_TYPE = "photo.jpg", "image/jpeg"  # pragma: no mutate
 
 
 class Flux2Client:
-    """Async client for the BFL Flux.2 API."""
+    """Async client that sends photo edits to the Flux server's /images/edits."""
 
-    def __init__(self, api_key: str, timeout: float = 30.0) -> None:
-        self._api_key = api_key
-        self._timeout = timeout
+    def __init__(self, base_url: str) -> None:
+        self._base_url = base_url
 
     async def generate_image(self, prompt: str, input_image_b64: str) -> bytes:
-        """Submit an image edit job and return the result.
-
-        Args:
-            prompt: The Flux.2 edit prompt.
-            input_image_b64: Base64-encoded input image.
-
-        Returns:
-            The generated image as bytes.
+        """Edit the photo with the prompt and return the PNG bytes.
 
         Raises:
-            ServiceError: If the API call fails.
+            ServiceError: If the Flux server answers an error or cannot be reached.
         """
-        headers = {"x-key": self._api_key}
-        payload = {
-            "prompt": prompt,
-            "input_image": input_image_b64,
-            "output_format": "png",
-        }
-
-        async with httpx.AsyncClient(
-            base_url=_BASE_URL, timeout=self._timeout
-        ) as client:
-            response = await client.post(
-                "/v1/flux-2-klein-9b",
-                headers=headers,
-                json=payload,
-            )
-            self._check_response(response)
-
-            polling_url = response.json().get("polling_url")
-            if not polling_url:
-                raise ServiceError(f"No polling_url in BFL response: {response.json()}")
-
-            image_url = await self._poll_for_result(client, polling_url)
-
-            image_response = await client.get(image_url)
-            image_response.raise_for_status()
-            return image_response.content
-
-    def _check_response(self, response: httpx.Response) -> None:
-        """Check response status and raise appropriate errors."""
-        if response.status_code == 402:
-            raise ServiceError("Insufficient BFL credits")
-        if response.status_code == 429:
-            raise ServiceError("BFL rate limit exceeded")
-        response.raise_for_status()
-
-    async def _poll_for_result(
-        self,
-        client: httpx.AsyncClient,
-        polling_url: str,
-    ) -> str:
-        """Poll until generation is ready and return the image URL."""
-        start_time = anyio.current_time()
-        while (anyio.current_time() - start_time) < _POLL_TIMEOUT_S:
-            response = await client.get(polling_url)
-            response.raise_for_status()
-            data = response.json()
-
-            status = data.get("status")
-            if status == "Ready":
-                sample_url = data.get("result", {}).get("sample")
-                if not isinstance(sample_url, str):
-                    raise ServiceError("Flux.2 returned Ready but no sample URL")
-                return sample_url
-
-            if status in ("Failed", "Error"):
-                raise ServiceError(f"Flux.2 generation failed: {data}")
-
-            await anyio.sleep(_POLL_INTERVAL_S)
-
-        raise ServiceError(f"Flux.2 polling timed out after {_POLL_TIMEOUT_S}s")
+        # max_retries=0: a failed edit is reported, not re-run for another 40s.
+        # One client per call closes its socket when the edit returns.
+        try:
+            async with AsyncOpenAI(
+                base_url=self._base_url,
+                api_key=_API_KEY,
+                timeout=_TIMEOUT_S,
+                max_retries=0,
+            ) as client:
+                result = await client.images.edit(
+                    image=(
+                        _UPLOAD_NAME,
+                        base64.b64decode(input_image_b64),
+                        _UPLOAD_TYPE,
+                    ),
+                    prompt=prompt,
+                )
+        except openai.APIError as e:
+            raise ServiceError(f"Flux server failed: {e}") from e
+        return base64.b64decode(result.data[0].b64_json)  # type: ignore[arg-type,index]

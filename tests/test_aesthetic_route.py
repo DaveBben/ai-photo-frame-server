@@ -1,4 +1,4 @@
-"""GET /aesthetic through the real app, with only the OpenAI and BFL web APIs faked.
+"""GET /aesthetic through the real app, with only the OpenAI web API faked.
 
 Slice: Look up a song's aesthetic in one place (docs/tasks/restructure-layers/task.md).
 Acceptance: GET /aesthetic returns identical responses before and after the move.
@@ -21,12 +21,8 @@ SONG = "bad guy"
 ARTIST = "Billie Eilish"
 AESTHETIC = "Lime green overhead strobe, crushed blacks, #8ACE00."
 EDIT_PROMPT = "Relight the scene with a lime green overhead strobe."
-PNG = b"PNG1"
 
 OPENAI_CHAT = "https://api.openai.com/v1/chat/completions"
-BFL_SUBMIT = "https://api.bfl.ai/v1/flux-2-klein-9b"
-BFL_POLL = "https://api.bfl.ai/v1/get_result?id=job-1"
-BFL_SAMPLE = "https://delivery.bfl.ai/job-1/sample.png"
 SEARCH_MODEL = "gpt-4o-search-preview"
 
 
@@ -69,7 +65,6 @@ async def frame(
 ) -> AsyncIterator[Frame]:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("BFL_API_KEY", "bfl-test")
 
     app = create_app()
     transport = httpx.ASGITransport(app=app)
@@ -90,11 +85,6 @@ async def frame(
                 return _chat_reply("A red photo.")
 
             mock.post(OPENAI_CHAT).mock(side_effect=openai)
-            mock.post(BFL_SUBMIT).respond(200, json={"polling_url": BFL_POLL})
-            mock.get(BFL_POLL).respond(
-                200, json={"status": "Ready", "result": {"sample": BFL_SAMPLE}}
-            )
-            mock.get(BFL_SAMPLE).respond(200, content=PNG)
 
             yield recorded
 
