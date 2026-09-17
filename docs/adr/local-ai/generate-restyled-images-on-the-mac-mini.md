@@ -27,6 +27,7 @@ The actual cause is that the fast machine gives up its speed whenever requests a
 5. **The Flux process's code lives in this repo.** It is its own module with its own start command, and `mflux` is installed only on macOS through a `sys_platform == 'darwin'` marker, because no `mflux>=0.16` install resolves for Linux x86_64, where CI and the `Dockerfile` build. An import rule in `pyproject.toml` keeps the Flux module and the API server from importing each other.
 6. **The API server moves from ai-server to the Mac mini.** The user chose this. The API server calls the Flux process on the same machine, and the photo frame's client has to point at the Mac mini instead of ai-server. The Mac mini has no Docker, so the API server runs there directly under uv instead of from the `Dockerfile` image.
 7. **The Flux process listens on `0.0.0.0:8081` with no access control.** The user chose this so another machine can call it without a config change. Any device on the local network can send it an edit request.
+8. **Every process on the Mac mini starts from a LaunchDaemon.** The user chose this. A LaunchDaemon is a `launchd` property list in `/Library/LaunchDaemons` that macOS starts at boot with no user logged in. The property lists live in this repo, and installing them needs `sudo`. A LaunchAgent in `~/Library/LaunchAgents` would install without `sudo` but start only when a user logs in, and automatic login is unavailable on the Mac mini because FileVault is on.
 
 ## What it buys
 
