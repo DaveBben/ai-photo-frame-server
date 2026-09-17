@@ -132,6 +132,7 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Done: Flux2Client(base_url) sends the photo and prompt to {FLUX_BASE_URL}/images/edits through the openai package and returns the PNG; failures become 502 "Flux server failed: ..."; BFL_API_KEY and the BFL polling client are gone.
 - By hand: none. The agent wrote the criterion and table at the user's request.
 - Observed: not yet. Signal: the frame shows a restyled photo once item D runs the API server on the Mac mini; until then tests/macmini/test_flux_client.py passing against the Mac mini (22.8s) is the only real call.
+- Observed: seen 2026-09-17 in part. After the API server moved to the Mac mini, restyles through it got their image from the Mac mini's Flux server (tests/macmini/test_api_server_on_mac_mini.py passed). The frame itself not yet checked.
 - Accepted: 3c0523d
 - Learned: **the openai package retries a 500 or a connection error twice by default**, so a failed 25-40s edit would have been sent three times. max_retries=0, pinned by tests/test_flux_client_single_attempt.py.
 - Learned: **an AsyncOpenAI client kept on the Flux2Client instance left its socket open, and filterwarnings=error turned the ResourceWarning into a failure of the macmini row**. The client is opened and closed per edit.
@@ -144,6 +145,7 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Done: OpenAIClient(VLM_BASE_URL) sends captions, edit prompts and song looks to mlx_vlm.server's Qwen3-VL-4B; a song look reads the iTunes album cover and catalog facts (ItunesClient), treating any iTunes failure or incomplete answer as no catalog data; OPENAI_API_KEY and the startup key check are gone, so item C is folded in.
 - By hand: none. The agent wrote the criterion and table at the user's request.
 - Observed: not yet. Signal: once item D runs the API server on the Mac mini, the frame shows a restyled photo with no key set. Before merge, tests/macmini/test_restyle_on_mac_mini.py passed from the laptop against the Mac mini's servers in 124s (upload, cold song look, two restyles; the second under 60s).
+- Observed: seen 2026-09-17 in part. The Mac mini's API server, with no key set, captioned, looked up "Midnight City" by M83 from its cover, and restyled within the test's 60s second-restyle limit. The frame itself not yet checked.
 - Accepted: b8a2fa4 (corrected by 91252b6)
 - Learned: **ImageStore.save_described writes only EXIF tag 270**, so the GPS, date and camera lines the edit prompt was built from never ran for an uploaded photo; they were deleted from pipeline.py. extract_image_metadata in image_store.py still parses them for nothing.
 - Learned: **a changed src file puts every one of its lines under CI's mutation step**, so each item here also tested or deleted older untested lines (log calls, a one-key list join, FastAPI title, unused defaults). Hand mutations locally must delete __pycache__ and set PYTHONDONTWRITEBYTECODE=1: a same-size restore in the same second reused a stale .pyc and gave false reds.
@@ -158,6 +160,8 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Done: deploy/com.local-shazam.api.plist keeps local-shazam-server running on 0.0.0.0:8000 as dave; install-mac-mini installs all four LaunchDaemons; scripts/deploy ends the running API server after uv sync so launchd restarts it on the deployed code; README has a Mac mini section.
 - By hand: none. The agent wrote the criterion and table at the user's request.
 - Observed: not yet. Signal: tests/macmini/test_api_server_on_mac_mini.py passes after install and again after a restart, then the frame shows a restyled photo once its client points at davids-mac-mini.local:8000.
+- Observed: seen 2026-09-17. After install the test passed in 134.6s; scripts/deploy restarted the API server (pid 2391 to 2526, launchd runs = 2); after a restart of the Mac mini all five macmini tests passed in 315.5s. The frame is not yet pointed at the Mac mini.
+- Learned: **bash reads scripts/deploy while it runs, and the deploy's git merge rewrote that file mid-run**, so the first deploy of 465046b stopped printing after uv sync and skipped its last lines. Later runs were whole. Not pinned; wrapping the script body in a function that bash reads before running would stop it.
 - Accepted: cf0dc70
 - Learned: **no API server was running on ai-server when this work started**: nothing listened on port 8000 and the only container was llama-swap, so none of these merges could break a live frame.
 - Decided: scripts/deploy restarts only the API server, with pkill on this checkout's .venv/bin/local-shazam-server path. Tradeoff: no automated test covers that line (deleting it leaves the suite green); the vision model and Flux servers keep old code until a restart, because each reload costs minutes of model loading.
