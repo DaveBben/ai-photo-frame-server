@@ -13,8 +13,8 @@ Decided:   REST over FastAPI, one API server process: src/local_shazam/api/route
 Deferred:  none yet.
 Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_deploy.py.
            Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
-Slices:    1. Caption an image with the vision model server on the Mac mini, and have it still answer after a reboot.
-           2. Edit an image with the Flux server on the Mac mini, and have it still answer after a reboot.
+           Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
+Slices:    2. Edit an image with the Flux server on the Mac mini, and have it still answer after a reboot.
            3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
            4. Look up a new song's look from its album cover.
            5. Restyle a photo with the edit prompt written by the local vision model.
@@ -37,7 +37,17 @@ Slices:    1. Caption an image with the vision model server on the Mac mini, and
 ## 2026-09-16 — Boot deploy waits for the network
 - Done: deploy/com.local-shazam.deploy.plist sets KeepAlive with SuccessfulExit false and ThrottleInterval 30, so launchd reruns scripts/deploy every 30s after a failed exit and stops after the first success.
 - Observed: not yet. Signal: after `scripts/install-mac-mini` is rerun and the Mac mini restarts, ~/Library/Logs/local-shazam-deploy.log shows any "Could not resolve host" lines followed by a "deployed" line from that boot.
+- Observed: seen 2026-09-16. After reinstall and a restart, the log showed "Could not resolve host: github.com" and then "deployed 926cb59"; `launchctl print system/com.local-shazam.deploy` showed runs = 2, last exit code = 0.
 - Accepted: 8a3fc01
 - Decided: a deploy that fails for a lasting reason, such as local commits blocking the fast-forward, retries every 30s until fixed. Tradeoff: one git fetch and a few log lines every 30s while it is broken.
 - Decided: ThrottleInterval is 30s. Tradeoff: a boot waits up to 30s past the network coming up before deploying.
 - Not caught by: the proposal for the first deploy listed "the network is up when the LaunchDaemon runs at boot" as an assumption to check by restart, and nothing automated can restart a Mac. The restart found it. tests/test_deploy_plist.py now asserts the retry keys; the boot behaviour itself stays a manual check.
+
+## 2026-09-16 — Vision model server on the Mac mini
+- Done: mlx-vlm is a macOS-only dependency; deploy/com.local-shazam.vlm.plist keeps mlx_vlm.server with Qwen3-VL-4B-Instruct-4bit on 0.0.0.0:8080 at boot and after any exit; scripts/install-mac-mini installs both LaunchDaemons.
+- Observed: not yet. Signal: after deploy, reinstall and a restart of the Mac mini, `uv run pytest -m macmini` passes from the laptop.
+- Accepted: 418c82c
+- Learned: **the spike's mlx_vlm.server ran under nohup and was gone after the Mac mini's first restart**, and the 608MB free before that restart became 11GB free after it. What used the memory is not established; `top -o mem` before the next unexplained drop would show it.
+- Decided: the server can start before the boot deploy's uv sync finishes; if mlx-vlm is missing it exits and launchd restarts it about 10s later. Tradeoff: a few failed starts in the log on the first boot after a dependency change.
+- Decided: model downloads are not blocked, so a model missing from the Hugging Face cache downloads at startup. Tradeoff: a changed model id needs network at boot.
+- Decided: mlx-vlm locked at 0.7.1 where the spike ran 0.7.0. Tradeoff: the macmini test is the first run on 0.7.1.
