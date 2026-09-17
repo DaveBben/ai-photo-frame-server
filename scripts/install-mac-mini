@@ -13,6 +13,15 @@ for label in com.local-shazam.deploy com.local-shazam.vlm com.local-shazam.flux;
   plutil -lint "deploy/$label.plist"
   sudo install -m 644 -o root -g wheel "deploy/$label.plist" "$target"
   sudo launchctl bootout "system/$label" 2>/dev/null || true
+  waited=0
+  while sudo launchctl print "system/$label" >/dev/null 2>&1; do
+    if [ "$waited" -ge 30 ]; then
+      echo "$label is still loaded 30s after launchctl bootout" >&2
+      exit 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
   sudo launchctl bootstrap system "$target"
   echo "installed $target"
 done

@@ -1,19 +1,23 @@
 """HTTP server that edits a photo with Flux.2 Klein on the Mac mini, answering the OpenAI images format."""
 
+import asyncio
 import base64
 import secrets
 import tempfile
 import time
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated, Any
 
-import anyio
 import uvicorn
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from PIL import Image
+
+# MLX evaluates a graph only on the thread that built it, and the Mac mini has one GPU.
+_worker = ThreadPoolExecutor(max_workers=1)
 
 
 def _generate_png(
@@ -42,16 +46,13 @@ def _generate_png(
 
 def create_app(model: Any) -> FastAPI:
     """Build the Flux server around a loaded image edit model."""
-    # ponytail: one lock for the whole process, since the Mac mini has one GPU.
-    lock = anyio.Lock()
 
     async def generate(
         prompt: str, reference: Image.Image, width: int, height: int
     ) -> bytes:
-        async with lock:
-            return await anyio.to_thread.run_sync(
-                _generate_png, model, prompt, reference, width, height
-            )
+        return await asyncio.wrap_future(
+            _worker.submit(_generate_png, model, prompt, reference, width, height)
+        )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -91,5 +92,7 @@ def main() -> None:
     """Load Flux.2 Klein and serve edits on 0.0.0.0:8081."""
     from mflux.models.flux2.variants import Flux2KleinEdit
 
-    model = Flux2KleinEdit(model_path="Runpod/FLUX.2-klein-4B-mflux-4bit")
+    model = _worker.submit(
+        Flux2KleinEdit, model_path="Runpod/FLUX.2-klein-4B-mflux-4bit"
+    ).result()
     uvicorn.run(create_app(model), host="0.0.0.0", port=8081)  # noqa: S104
