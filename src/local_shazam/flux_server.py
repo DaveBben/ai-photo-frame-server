@@ -56,7 +56,7 @@ def create_app(model: Any) -> FastAPI:
         await generate("warm up", Image.new("RGB", (512, 512)), 800, 480)
         yield
 
-    app = FastAPI(title="local-shazam-flux", lifespan=lifespan)
+    app = FastAPI(lifespan=lifespan)
 
     @app.post("/v1/images/edits")
     async def edit_image(
@@ -90,7 +90,3 @@ def main() -> None:
 
     model = Flux2KleinEdit(model_path="Runpod/FLUX.2-klein-4B-mflux-4bit")
     uvicorn.run(create_app(model), host="0.0.0.0", port=8081)  # noqa: S104
-
-
-if __name__ == "__main__":
-    main()
