@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Bring this checkout to the newest commit on main and install its dependencies.
+# The Mac mini's LaunchDaemon runs this at boot; run it by hand after a merge:
+#   ssh mini ~/ai-photo-frame-server/scripts/deploy
+set -euo pipefail
+cd "$(dirname "$0")/.."
+# Neither launchd nor a non-interactive ssh session puts uv's install directory on PATH.
+export PATH="$HOME/.local/bin:$PATH"
+
+git fetch -q origin main
+git checkout -q main
+git merge -q --ff-only origin/main
+uv sync --locked
+echo "deployed $(git rev-parse --short HEAD)"
