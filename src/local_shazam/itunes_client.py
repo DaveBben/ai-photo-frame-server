@@ -14,7 +14,7 @@ _STOP_WORDS = {"feat", "featuring", "ft", "with", "and", "the", "a"}
 
 def _words(text: str) -> set[str]:
     """Return text's casefolded runs of letters and digits, minus joining words such as feat."""
-    return set(re.findall(r"[0-9a-z]+", text.casefold())) - _STOP_WORDS
+    return set(re.findall(r"[^\W_]+", text.casefold())) - _STOP_WORDS
 
 
 def _closest_track(

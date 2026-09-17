@@ -88,3 +88,15 @@ async def test_shared_title_and_artist_words_below_one_half_is_no_match() -> Non
     )
 
     assert album is None
+
+
+async def test_title_in_a_non_latin_script_matches() -> None:
+    # Live 2026-09-17: search for "Кукушка Kino" lists "Кукушка (Live)" before "Кукушка".
+    album = await _album(
+        "Кукушка",
+        "Kino",
+        _track("Кукушка (Live)", "Kino", "12_22"),
+        _track("Кукушка", "Kino", "Чёрный альбом"),
+    )
+
+    assert album == "Album: Чёрный альбом"
