@@ -16,12 +16,12 @@ from PIL import Image
 from local_shazam.server import create_app
 
 
-async def test_server_starts_without_a_black_forest_labs_key(
+async def test_server_starts_without_a_black_forest_labs_or_openai_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("BFL_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)  # no .env file supplies a key
 
     app = create_app()
@@ -38,7 +38,6 @@ async def test_flux_base_url_sends_the_edit_to_that_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("FLUX_BASE_URL", "http://flux.test:9000/v1")
     png = b"PNG-from-flux-test"
 
@@ -50,7 +49,7 @@ async def test_flux_base_url_sends_the_edit_to_that_server(
         ) as client,
     ):
         with respx.mock(assert_all_called=False) as mock:
-            mock.post("https://api.openai.com/v1/chat/completions").respond(
+            mock.post("http://127.0.0.1:8080/v1/chat/completions").respond(
                 200,
                 json={
                     "id": "c",

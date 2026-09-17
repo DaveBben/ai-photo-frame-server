@@ -1,7 +1,7 @@
-"""PUT /images through the real app, with only the OpenAI web API faked.
+"""PUT /images through the real app, with the Mac mini's vision model server faked.
 
-Slice: Upload a photo (docs/tasks/restructure-layers/task.md).
-Acceptance: PUT /images returns identical responses before and after the move.
+Slice: Upload a photo (docs/tasks/restructure-layers/task.md), then captions, song looks
+and edit prompts from the local vision model (docs/tasks/local-ai/task.md, item B).
 """
 
 import base64
@@ -16,32 +16,13 @@ import httpx
 import pytest
 import respx
 from PIL import Image
+from vlm_fakes import VLM_CHAT, VLM_MODEL, chat_reply
 
 from local_shazam.exceptions import ServiceError
 from local_shazam.prompts import load_prompt
 from local_shazam.server import create_app
 
 DESCRIPTION = "A person in a leather jacket on a beach at golden hour."
-OPENAI_CHAT = "https://api.openai.com/v1/chat/completions"
-
-
-def _chat_reply(content: str) -> httpx.Response:
-    return httpx.Response(
-        200,
-        json={
-            "id": "chatcmpl-1",
-            "object": "chat.completion",
-            "created": 0,
-            "model": "gpt-4o",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": "stop",
-                }
-            ],
-        },
-    )
 
 
 def _photo(size: tuple[int, int], fmt: str = "JPEG", **save: object) -> bytes:
@@ -68,7 +49,7 @@ async def frame(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[Frame]:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("VLM_BASE_URL", raising=False)
 
     app = create_app()
     transport = httpx.ASGITransport(app=app)
@@ -81,9 +62,9 @@ async def frame(
 
             def openai(request: httpx.Request) -> httpx.Response:
                 recorded.openai_requests.append(json.loads(request.content))
-                return _chat_reply(recorded.reply)
+                return chat_reply(recorded.reply)
 
-            mock.post(OPENAI_CHAT).mock(side_effect=openai)
+            mock.post(VLM_CHAT).mock(side_effect=openai)
             yield recorded
 
 
@@ -106,7 +87,7 @@ async def test_describe_request_carries_shrunk_photo_and_prompt(frame: Frame) ->
 
     assert len(frame.openai_requests) == 1
     request = frame.openai_requests[0]
-    assert request["model"] == "gpt-4o"
+    assert request["model"] == VLM_MODEL
     content = request["messages"][0]["content"]  # type: ignore[index]
     image_url = content[0]["image_url"]["url"]
     sent = Image.open(BytesIO(base64.b64decode(image_url.split(",", 1)[1])))
@@ -117,7 +98,9 @@ async def test_describe_request_carries_shrunk_photo_and_prompt(frame: Frame) ->
 async def test_empty_description_stores_no_photo_for_the_frame(frame: Frame) -> None:
     frame.reply = ""
 
-    with pytest.raises(ServiceError, match="GPT-4o returned empty response"):
+    with pytest.raises(
+        ServiceError, match=r"^Vision model returned an empty response$"
+    ):
         await frame.upload(_photo((64, 48)))
 
     assert (await frame.client.get("/images")).status_code == 404
