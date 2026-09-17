@@ -79,6 +79,7 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - By hand: none: the user asked the agent to write it and skipped the merge description.
 - Observed: not yet. Signal: after deploy, reinstall and a restart of the Mac mini, `uv run pytest -m macmini` passes, including the second edit under 46.6s, and `top -l 1 | grep PhysMem` on the Mac mini shows free memory with both models loaded.
 - Observed: failed 2026-09-17. After deploying dc730e6 the LaunchDaemon's server exited at startup with "RuntimeError: There is no Stream(cpu, 0) in current thread" (exit code 3, three runs); fixed by the next entry.
+- Observed: seen 2026-09-17 after ebe025b. Both macmini tests passed from the LaunchDaemon's server, and again after a restart (vlm and flux runs = 1, never exited); 298MB free while generating.
 - Accepted: 1e68ba9
 - Learned: **the edit guard refuses every file the red commit changed, and the red commit included a stub in src/**, so the build agent could not replace the stub and the user had to clear agile.redCommit before the build could land. Red commits now hold test files only; stubs go in a separate commit.
 - Learned: **tests/test_flux_server.py and tests/macmini/test_flux_server.py shared a basename with no __init__.py in either directory**, so pytest imported both as module test_flux_server and every run stopped at collection. tests/macmini/__init__.py makes the second one macmini.test_flux_server. Caught by the turn-end hook.
@@ -93,6 +94,7 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Done: flux_server.py builds the model and runs every generation on one module-level single-worker ThreadPoolExecutor; scripts/install-mac-mini waits up to 30s for launchctl bootout to finish before bootstrap.
 - By hand: none. The user asked the agent to write the criterion and table and to merge.
 - Observed: not yet. Signal: after deploy and reinstall, `launchctl print system/com.local-shazam.flux` shows the server running and `uv run pytest -m macmini` passes.
+- Observed: seen 2026-09-17. install-mac-mini reinstalled all three LaunchDaemons with no bootstrap error; after a restart the boot deploy failed once on DNS and deployed ebe025b on its second run.
 - Accepted: 828df6f
 - Learned: **MLX 0.32.2 raises "There is no Stream(cpu, 0) in current thread" when a graph built on one thread is evaluated on another**, and main() built Flux2KleinEdit on the main thread while anyio ran generations on pool threads. Reproduced with plain mlx on the Mac mini. Pinned by tests/test_flux_server_thread.py.
 - Learned: **mutmut 3.8.0 forks a child per mutant after the parent has started the executor's thread, and a forked executor has no thread**, so every submit waited and all 49 mutants timed out. os.register_at_fork gives each child a new executor.
