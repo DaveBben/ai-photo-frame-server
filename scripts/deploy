@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Bring this checkout to the newest commit on main and install its dependencies.
+echo "scripts/deploy is not written yet" >&2
+exit 1
