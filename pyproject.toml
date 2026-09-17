@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn[standard]>=0.34",
     "python-multipart>=0.0.18",
     "mlx-vlm>=0.7.0 ; sys_platform == 'darwin'",
+    "mflux>=0.19.1 ; sys_platform == 'darwin'",
 ]
 
 [dependency-groups]
@@ -41,6 +42,7 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 local-shazam-server = "local_shazam.server:main"
+local-shazam-flux = "local_shazam.flux_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/local_shazam"]
@@ -70,6 +72,11 @@ known-first-party = ["local_shazam"]
 mypy_path = "src"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# mflux has no type information, and does not install on Linux.
+module = ["mflux.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -134,8 +141,27 @@ type = "protected"
 protected_modules = ["local_shazam.config"]
 allowed_importers = ["local_shazam.server"]
 
+[[tool.importlinter.contracts]]
+name = "The Flux server imports nothing from the API server"
+type = "forbidden"
+source_modules = ["local_shazam.flux_server"]
+forbidden_modules = ["local_shazam.api", "local_shazam.pipeline", "local_shazam.server"]
+
+[[tool.importlinter.contracts]]
+name = "The API server imports nothing from the Flux server"
+type = "forbidden"
+source_modules = ["local_shazam.api", "local_shazam.pipeline"]
+forbidden_modules = ["local_shazam.flux_server"]
+
 [tool.vulture]
 paths = ["src", "vulture_whitelist.py"]
 
 [tool.mutmut]
 source_paths = ["src/"]
+# tests/test_deploy.py and tests/test_deploy_plist.py read these from the mutants/ copy.
+also_copy = ["scripts/", "deploy/"]
+
+[tool.uv]
+# mflux 0.19.1 asks for mlx[cuda13]<0.32 on Linux, which uv's lock cannot reconcile with
+# mlx-vlm's mlx>=0.32.2 even though both are macOS-only here. Neither installs on Linux.
+override-dependencies = ["mlx>=0.32.2,<0.33.0; sys_platform == 'darwin'"]

@@ -14,8 +14,8 @@ Deferred:  none yet.
 Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_deploy.py.
            Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
            Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
-Slices:    2. Edit an image with the Flux server on the Mac mini, and have it still answer after a reboot.
-           3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
+           Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
+Slices:    3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
            4. Look up a new song's look from its album cover.
            5. Restyle a photo with the edit prompt written by the local vision model.
            6. Upload a photo and have the local vision model describe it.
@@ -46,8 +46,23 @@ Slices:    2. Edit an image with the Flux server on the Mac mini, and have it st
 ## 2026-09-16 — Vision model server on the Mac mini
 - Done: mlx-vlm is a macOS-only dependency; deploy/com.local-shazam.vlm.plist keeps mlx_vlm.server with Qwen3-VL-4B-Instruct-4bit on 0.0.0.0:8080 at boot and after any exit; scripts/install-mac-mini installs both LaunchDaemons.
 - Observed: not yet. Signal: after deploy, reinstall and a restart of the Mac mini, `uv run pytest -m macmini` passes from the laptop.
+- Observed: seen 2026-09-16. After install the macmini test passed in 2.9s; after a restart the server's process was 50s old at 56s uptime (launchd runs = 1, never exited), the deploy log showed "deployed 385759f", and the test passed in 1.5s. 6.2GB free with the model loaded.
 - Accepted: 418c82c
 - Learned: **the spike's mlx_vlm.server ran under nohup and was gone after the Mac mini's first restart**, and the 608MB free before that restart became 11GB free after it. What used the memory is not established; `top -o mem` before the next unexplained drop would show it.
 - Decided: the server can start before the boot deploy's uv sync finishes; if mlx-vlm is missing it exits and launchd restarts it about 10s later. Tradeoff: a few failed starts in the log on the first boot after a dependency change.
 - Decided: model downloads are not blocked, so a model missing from the Hugging Face cache downloads at startup. Tradeoff: a changed model id needs network at boot.
 - Decided: mlx-vlm locked at 0.7.1 where the spike ran 0.7.0. Tradeoff: the macmini test is the first run on 0.7.1.
+
+## 2026-09-16 — Flux server on the Mac mini
+- Done: local-shazam-flux serves POST /v1/images/edits in the OpenAI images format on 0.0.0.0:8081, shrinking the photo to 512px, generating at 3 steps behind one lock, after one warm-up generation at startup; deploy/com.local-shazam.flux.plist keeps it running; scripts/install-mac-mini installs three LaunchDaemons.
+- By hand: none: the user asked the agent to write it and skipped the merge description.
+- Observed: not yet. Signal: after deploy, reinstall and a restart of the Mac mini, `uv run pytest -m macmini` passes, including the second edit under 46.6s, and `top -l 1 | grep PhysMem` on the Mac mini shows free memory with both models loaded.
+- Accepted: 1e68ba9
+- Learned: **the edit guard refuses every file the red commit changed, and the red commit included a stub in src/**, so the build agent could not replace the stub and the user had to clear agile.redCommit before the build could land. Red commits now hold test files only; stubs go in a separate commit.
+- Learned: **tests/test_flux_server.py and tests/macmini/test_flux_server.py shared a basename with no __init__.py in either directory**, so pytest imported both as module test_flux_server and every run stopped at collection. tests/macmini/__init__.py makes the second one macmini.test_flux_server. Caught by the turn-end hook.
+- Learned: **mflux 0.19.1 asks for mlx[cuda13]<0.32 on Linux while mlx-vlm needs mlx>=0.32.2, and uv's universal lock rejects the pair even though both are macOS-only here**. The [tool.uv] override pins mlx>=0.32.2,<0.33 on macOS; an mflux or mlx-vlm needing mlx 0.33 fails to lock until it is edited.
+- Decided: two import-linter contracts, one per direction, because one forbidden contract listing api and pipeline on both sides would also forbid api importing pipeline. Tradeoff: two rules to keep in step.
+- Decided: the seed is random per request (secrets.randbelow). Tradeoff: the same photo and song give a different image each time; the user said either is fine.
+- Decided: the reference is converted to RGB and saved as PNG in a temporary directory, so a CMYK JPEG does not fail. Tradeoff: no test covers CMYK or truncated uploads.
+- Decided: size parsing accepts "0x480" or "-5x3" and passes them to mflux. Tradeoff: those get whatever error mflux raises instead of a 400.
+- Decided: mypy ignores missing imports for mflux.*, because mflux ships no type information and does not install on Linux. Tradeoff: calls into mflux are untyped.
