@@ -24,13 +24,8 @@ log = get_logger(__name__)
 
 def _validate_settings(settings: Settings) -> None:
     """Validate required settings at startup."""
-    missing = []
     if not settings.openai_api_key:
-        missing.append("OPENAI_API_KEY")
-    if missing:
-        raise RuntimeError(
-            f"Missing required environment variables: {', '.join(missing)}"
-        )
+        raise RuntimeError("Missing required environment variables: OPENAI_API_KEY")
 
 
 @asynccontextmanager
