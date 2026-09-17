@@ -1,9 +1,11 @@
-"""GET /aesthetic through the real app, with only the OpenAI web API faked.
+"""GET /aesthetic through the real app, with the Mac mini's vision model server and iTunes faked.
 
-Slice: Look up a song's aesthetic in one place (docs/tasks/restructure-layers/task.md).
-Acceptance: GET /aesthetic returns identical responses before and after the move.
+Slice: Look up a song's aesthetic in one place (docs/tasks/restructure-layers/task.md),
+then captions, song looks and edit prompts from the local vision model
+(docs/tasks/local-ai/task.md, item B).
 """
 
+import base64
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -14,7 +16,17 @@ import httpx
 import pytest
 import respx
 from PIL import Image
+from vlm_fakes import (
+    ITUNES_SEARCH,
+    VLM_CHAT,
+    VLM_MODEL,
+    chat_reply,
+    cover_jpeg,
+    is_aesthetic_request,
+    mock_itunes,
+)
 
+from local_shazam.prompts import load_prompt
 from local_shazam.server import create_app
 
 SONG = "bad guy"
@@ -22,36 +34,15 @@ ARTIST = "Billie Eilish"
 AESTHETIC = "Lime green overhead strobe, crushed blacks, #8ACE00."
 EDIT_PROMPT = "Relight the scene with a lime green overhead strobe."
 
-OPENAI_CHAT = "https://api.openai.com/v1/chat/completions"
-SEARCH_MODEL = "gpt-4o-search-preview"
-
-
-def _chat_reply(content: str) -> httpx.Response:
-    return httpx.Response(
-        200,
-        json={
-            "id": "chatcmpl-1",
-            "object": "chat.completion",
-            "created": 0,
-            "model": "gpt-4o",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": "stop",
-                }
-            ],
-        },
-    )
-
 
 @dataclass
 class Frame:
-    """The app as the photo frame sees it, plus every search request sent to OpenAI."""
+    """The app as the photo frame sees it, plus every song-look request sent to the vision model."""
 
     client: httpx.AsyncClient
+    mock: respx.MockRouter
     search_reply: str = AESTHETIC
-    searches: list[str] = field(default_factory=list)
+    searches: list[dict[str, object]] = field(default_factory=list)
 
     async def aesthetic(self) -> httpx.Response:
         return await self.client.get(
@@ -64,7 +55,7 @@ async def frame(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[Frame]:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("VLM_BASE_URL", raising=False)
 
     app = create_app()
     transport = httpx.ASGITransport(app=app)
@@ -73,28 +64,93 @@ async def frame(
         httpx.AsyncClient(transport=transport, base_url="http://frame") as client,
     ):
         with respx.mock(assert_all_called=False) as mock:
-            recorded = Frame(client=client)
+            recorded = Frame(client=client, mock=mock)
 
-            def openai(request: httpx.Request) -> httpx.Response:
+            def vlm(request: httpx.Request) -> httpx.Response:
                 body = json.loads(request.content)
-                if body["model"] == SEARCH_MODEL:
-                    recorded.searches.append(body["messages"][1]["content"])
-                    return _chat_reply(recorded.search_reply)
+                if is_aesthetic_request(body):
+                    recorded.searches.append(body)
+                    return chat_reply(recorded.search_reply)
                 if body["messages"][0]["role"] == "system":
-                    return _chat_reply(EDIT_PROMPT)
-                return _chat_reply("A red photo.")
+                    return chat_reply(EDIT_PROMPT)
+                return chat_reply("A red photo.")
 
-            mock.post(OPENAI_CHAT).mock(side_effect=openai)
+            mock.post(VLM_CHAT).mock(side_effect=vlm)
+            mock_itunes(mock)
 
             yield recorded
 
 
-async def test_uncached_song_returns_the_search_model_aesthetic(frame: Frame) -> None:
+async def test_uncached_song_is_described_from_its_album_cover(frame: Frame) -> None:
     response = await frame.aesthetic()
 
     assert response.status_code == 200
     assert response.json() == {"aesthetic": AESTHETIC}
-    assert frame.searches == [f'Song: "{SONG}"\nArtist: {ARTIST}']
+    itunes = frame.mock.routes["itunes"].calls.last.request
+    assert dict(itunes.url.params) == {
+        "term": f"{SONG} {ARTIST}",
+        "entity": "song",
+        "limit": "1",
+    }
+    assert len(frame.searches) == 1
+    request = frame.searches[0]
+    assert request["model"] == VLM_MODEL
+    messages = request["messages"]
+    assert messages[0] == {  # type: ignore[index]
+        "role": "system",
+        "content": load_prompt("search_aesthetic"),
+    }
+    cover, text = messages[1]["content"]  # type: ignore[index]
+    assert cover == {
+        "type": "image_url",
+        "image_url": {
+            "url": "data:image/jpeg;base64," + base64.b64encode(cover_jpeg()).decode()
+        },
+    }
+    assert text["type"] == "text"
+    for line in (
+        f'Song: "{SONG}"',
+        f"Artist: {ARTIST}",
+        "Album: WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?",
+        "Genre: Alternative",
+        "Released: 2019-03-29",
+    ):
+        assert line in text["text"]
+
+
+async def test_song_missing_from_itunes_is_described_without_a_cover(
+    frame: Frame,
+) -> None:
+    mock_itunes(frame.mock, found=False)
+
+    response = await frame.aesthetic()
+
+    assert response.json() == {"aesthetic": AESTHETIC}
+    (only,) = frame.searches[0]["messages"][1]["content"]  # type: ignore[index]
+    assert only["type"] == "text"
+    assert "No catalog data found." in only["text"]
+    assert f'Song: "{SONG}"' in only["text"]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [httpx.Response(503), httpx.ConnectError("itunes unreachable")],
+    ids=["itunes-503", "itunes-unreachable"],
+)
+async def test_itunes_failure_is_treated_as_no_catalog_data(
+    frame: Frame, failure: httpx.Response | Exception
+) -> None:
+    route = frame.mock.get(ITUNES_SEARCH, name="itunes")
+    if isinstance(failure, Exception):
+        route.mock(side_effect=failure)
+    else:
+        route.mock(return_value=failure)
+
+    response = await frame.aesthetic()
+
+    assert response.status_code == 200
+    (only,) = frame.searches[0]["messages"][1]["content"]  # type: ignore[index]
+    assert "No catalog data found." in only["text"]
 
 
 async def test_second_request_is_served_from_the_cache(frame: Frame) -> None:
@@ -122,9 +178,7 @@ async def test_empty_search_reply_returns_502_with_reason(frame: Frame) -> None:
     response = await frame.aesthetic()
 
     assert response.status_code == 502
-    assert response.json() == {
-        "detail": "gpt-4o-search-preview returned empty response"
-    }
+    assert response.json() == {"detail": "Vision model returned an empty response"}
 
 
 async def test_transform_caches_the_aesthetic_for_get_aesthetic(frame: Frame) -> None:

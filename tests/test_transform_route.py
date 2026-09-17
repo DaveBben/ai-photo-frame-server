@@ -1,7 +1,8 @@
-"""POST /images through the real app, with the OpenAI web API and the Mac mini's Flux server faked.
+"""POST /images through the real app, with the Mac mini's vision model server, Flux server and iTunes faked.
 
 Slice: Transform a photo (docs/tasks/restructure-layers/task.md), then Restyle a photo
-with the image made by the local Flux server (docs/tasks/local-ai/task.md, item A).
+with the image made by the local Flux server (docs/tasks/local-ai/task.md, item A),
+then captions, song looks and edit prompts from the local vision model (item B).
 Acceptance (item A): Given a stored photo and a cached song aesthetic, WHEN the frame
 posts /images, THEN it gets back the PNG the Flux server at FLUX_BASE_URL made, and no
 request goes to api.bfl.ai.
@@ -21,6 +22,7 @@ import httpx
 import pytest
 import respx
 from PIL import Image
+from vlm_fakes import VLM_CHAT, VLM_MODEL, is_aesthetic_request, mock_itunes
 
 from local_shazam.server import create_app
 
@@ -31,9 +33,7 @@ AESTHETIC = "Lime green overhead strobe, crushed blacks, #8ACE00."
 EDIT_PROMPT = "Relight the scene with a lime green overhead strobe."
 PNG = b"PNG1"
 
-OPENAI_CHAT = "https://api.openai.com/v1/chat/completions"
 FLUX_EDITS = "http://127.0.0.1:8081/v1/images/edits"
-SEARCH_MODEL = "gpt-4o-search-preview"
 
 
 def _chat_reply(content: str) -> httpx.Response:
@@ -93,7 +93,7 @@ async def frame(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[Frame]:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("VLM_BASE_URL", raising=False)
     monkeypatch.delenv("FLUX_BASE_URL", raising=False)
 
     app = create_app()
@@ -108,7 +108,7 @@ async def frame(
             def openai(request: httpx.Request) -> httpx.Response:
                 body = json.loads(request.content)
                 recorded.openai_requests.append(body)
-                if body["model"] == SEARCH_MODEL:
+                if is_aesthetic_request(body):
                     return _chat_reply(AESTHETIC)
                 if body["messages"][0]["role"] == "system":
                     return _chat_reply(EDIT_PROMPT)
@@ -124,7 +124,8 @@ async def frame(
                     },
                 )
 
-            mock.post(OPENAI_CHAT).mock(side_effect=openai)
+            mock.post(VLM_CHAT).mock(side_effect=openai)
+            mock_itunes(mock)
             mock.post(FLUX_EDITS, name="flux_edit").mock(side_effect=flux_edit)
 
             photo = BytesIO()
@@ -155,8 +156,9 @@ async def test_prompt_request_carries_photo_description_and_song_aesthetic(
 ) -> None:
     await frame.transform()
 
-    prompt_requests = [r for r in frame.openai_requests if r["model"] != SEARCH_MODEL]
+    prompt_requests = [r for r in frame.openai_requests if not is_aesthetic_request(r)]
     assert len(prompt_requests) == 1
+    assert prompt_requests[0]["model"] == VLM_MODEL
     messages = json.dumps(prompt_requests[0]["messages"])
     assert f"Description: {DESCRIPTION}" in messages
     assert AESTHETIC in messages
@@ -178,7 +180,7 @@ async def test_edit_request_carries_written_prompt_and_uploaded_photo(
 async def test_cached_aesthetic_sends_no_search_request(frame: Frame) -> None:
     await frame.transform()
 
-    assert [r for r in frame.openai_requests if r["model"] == SEARCH_MODEL] == []
+    assert [r for r in frame.openai_requests if is_aesthetic_request(r)] == []
 
 
 async def test_flux_server_error_returns_502_with_reason(frame: Frame) -> None:

@@ -12,21 +12,6 @@ import pytest
 from local_shazam import server
 
 
-async def test_server_refuses_to_start_without_an_openai_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.chdir(tmp_path)  # no .env file supplies a key
-
-    app = server.create_app()
-    with pytest.raises(
-        RuntimeError, match=r"^Missing required environment variables: OPENAI_API_KEY$"
-    ):
-        async with app.router.lifespan_context(app):
-            pass
-
-
 def test_main_serves_the_app_factory_with_the_configured_address(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
