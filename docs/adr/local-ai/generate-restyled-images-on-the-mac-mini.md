@@ -26,6 +26,7 @@ The actual cause is that the fast machine gives up its speed whenever requests a
 4. **The Flux process answers the OpenAI images format.** It takes `POST /v1/images/edits` as multipart with the photo as a file and the prompt as a form field, and returns JSON with the PNG as base64 in `data[0].b64_json`. `llama-swap` on ai-server answers the same request (F23), so pointing `Flux2Client` at ai-server later is a URL change.
 5. **The Flux process's code lives in this repo.** It is its own module with its own start command, and `mflux` is installed only on macOS through a `sys_platform == 'darwin'` marker, because no `mflux>=0.16` install resolves for Linux x86_64, where CI and the `Dockerfile` build. An import rule in `pyproject.toml` keeps the Flux module and the API server from importing each other.
 6. **The API server moves from ai-server to the Mac mini.** The user chose this. The API server calls the Flux process on the same machine, and the photo frame's client has to point at the Mac mini instead of ai-server. The Mac mini has no Docker, so the API server runs there directly under uv instead of from the `Dockerfile` image.
+7. **The Flux process listens on `0.0.0.0:8081` with no access control.** The user chose this so another machine can call it without a config change. Any device on the local network can send it an edit request.
 
 ## What it buys
 
@@ -35,6 +36,7 @@ A restyle for a cached song takes about 38.5s whether the last request was a min
 
 - **Memory on the Mac mini was already short on 2026-09-16.** With only the spike's vision model server loaded, it had 608MB free out of 16GB, against 4417MB free in the same state during the spike. What uses the difference is not established; `top -o mem` on the Mac mini would show it. Flux alone was 7.9GB wired in the spike, and the API server now runs there too.
 - **Memory is at its limit.** With Flux and Qwen3-VL-4B both loaded and after one image, the Mac mini had 203MB free out of 16GB (F19). Nothing else can run on it. Qwen3-VL-8B does not fit alongside Flux. Measure free memory with `top` after the prompt-writing model moves to the Mac mini in the third piece of work. If the machine starts swapping, move prompt writing to ai-server's `qwen3.6-4b`, which is never unloaded (F20).
+- **Any device on the local network can start a generation.** The Flux process checks no key, and each request holds the Mac mini's GPU for about 25s. Nothing detects or limits this. If an unknown caller appears, bind to `127.0.0.1` or add a key check.
 - **The image is from the smaller model.** Klein 4B at 512px drifted the leather jacket in the test photo toward a sequinned texture, while face, pose and scarf held (F18). No one has compared it side by side with Klein 9B.
 - **A new song still takes over 60s.** Looking up a new song's aesthetic added 28.7s, for 67.2s in total (F22). Only the first play of each song pays it, because `AestheticCache` stores the result.
 - **Only single, one-off runs were measured.** A frame restyling repeatedly may slow as the Mac mini heats up. Time ten restyles in a row after the first piece of work ships.
