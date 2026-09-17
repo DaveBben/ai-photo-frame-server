@@ -16,6 +16,27 @@ Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_
            Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
            API server gets restyled images from FLUX_BASE_URL (default 127.0.0.1:8081), 502 on Flux failure, no retries, no BFL key: tests/test_transform_route.py, tests/test_local_flux_config.py, tests/test_flux_client_single_attempt.py; on the Mac mini: tests/macmini/test_flux_client.py.
            Captions, song looks (iTunes cover) and edit prompts from VLM_BASE_URL, 502 on vision model failure, no retries, no keys: tests/test_upload_route.py, test_aesthetic_route.py, test_transform_route.py, test_local_vlm_config.py, test_vlm_requests.py, test_itunes_incomplete_answer.py, test_pipeline_gaps.py; on the Mac mini: tests/macmini/test_restyle_on_mac_mini.py.
+           API server LaunchDaemon and install: tests/test_api_plist.py; on the Mac mini: tests/macmini/test_api_server_on_mac_mini.py.
+           Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
+Slices:    none left in this repo. Remaining for the user: point the frame's client (ai-photo-frame-client, on the Pi) at http://davids-mac-mini.local:8000, and copy any photos the frame should keep into data/img on the Mac mini.
+
+## Plan
+Outcome:   When a song plays, the frame shows my photo restyled for that song within 60 seconds, no request goes to OpenAI or Black Forest Labs, and I pay no API bill.
+Problem:   The frame's owner pays OpenAI for every photo upload, new song lookup and edit prompt, and Black Forest Labs for every restyled image. SPIKE_FINDINGS.md shows the same pipeline running on the Mac mini in 38.5s once a song's aesthetic is cached.
+Not doing: No change to any route's request or response in openapi.yaml; the Pi client keeps its synchronous HTTP call.
+           No queue or lock for two restyle requests arriving at once.
+Decided:   REST over FastAPI, one API server process: src/local_shazam/api/routes.py, openapi.yaml.
+           Storage stays as image files plus the SQLite aesthetic cache: image_store.py, aesthetic_cache.py.
+           Model calls go only through pipeline.py, and no interface class sits in front of a client: docs/adr/architecture/split-api-pipeline-and-clients.md.
+           Python 3.13 for the API server: pyproject.toml.
+           Flux runs on the Mac mini in its own process on 0.0.0.0:8081, answering the OpenAI images format, with its code in this repo; the API server moves from ai-server to the Mac mini; every process there starts from a LaunchDaemon: docs/adr/local-ai/generate-restyled-images-on-the-mac-mini.md.
+Deferred:  none yet.
+Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_deploy.py.
+           Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
+           Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
+           API server gets restyled images from FLUX_BASE_URL (default 127.0.0.1:8081), 502 on Flux failure, no retries, no BFL key: tests/test_transform_route.py, tests/test_local_flux_config.py, tests/test_flux_client_single_attempt.py; on the Mac mini: tests/macmini/test_flux_client.py.
+           Captions, song looks (iTunes cover) and edit prompts from VLM_BASE_URL, 502 on vision model failure, no retries, no keys: tests/test_upload_route.py, test_aesthetic_route.py, test_transform_route.py, test_local_vlm_config.py, test_vlm_requests.py, test_itunes_incomplete_answer.py, test_pipeline_gaps.py; on the Mac mini: tests/macmini/test_restyle_on_mac_mini.py.
+           API server LaunchDaemon and install: tests/test_api_plist.py; on the Mac mini: tests/macmini/test_api_server_on_mac_mini.py.
            Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
 Slices:    D. The API server runs on the Mac mini and restarts after a reboot; a full restyle from the laptop over HTTP finishes within 60s. Pointing the frame's client at the Mac mini is a change in ai-photo-frame-client, left to the user.
            Reordered 2026-09-17 by the agent, which the user asked to finish the remaining items alone: each item can now be tested against the Mac mini without paid API keys.
@@ -36,6 +57,7 @@ Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_
            Vision model server answers with a description: tests/macmini/test_vlm_server.py (run with -m macmini).
            API server gets restyled images from FLUX_BASE_URL (default 127.0.0.1:8081), 502 on Flux failure, no retries, no BFL key: tests/test_transform_route.py, tests/test_local_flux_config.py, tests/test_flux_client_single_attempt.py; on the Mac mini: tests/macmini/test_flux_client.py.
            Captions, song looks (iTunes cover) and edit prompts from VLM_BASE_URL, 502 on vision model failure, no retries, no keys: tests/test_upload_route.py, test_aesthetic_route.py, test_transform_route.py, test_local_vlm_config.py, test_vlm_requests.py, test_itunes_incomplete_answer.py, test_pipeline_gaps.py; on the Mac mini: tests/macmini/test_restyle_on_mac_mini.py.
+           API server LaunchDaemon and install: tests/test_api_plist.py; on the Mac mini: tests/macmini/test_api_server_on_mac_mini.py.
            Flux server contract, size, reference shrink, steps, lock, warm-up: tests/test_flux_server.py; import rules: tests/test_import_rules_flux_server.py; on the Mac mini: tests/macmini/test_flux_server.py.
 Slices:    3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
            4. Look up a new song's look from its album cover.
@@ -131,3 +153,13 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Decided: logging of prompts and replies removed from openai_client.py. Tradeoff: less to read when a caption or look is poor.
 - Decided: captions use Pillow's default thumbnail filter instead of LANCZOS. Tradeoff: slightly different pixels; caption quality not compared.
 - Decided: openapi.yaml still says GPT-4o in two descriptions, and OpenAIClient keeps its name. Tradeoff: names that no longer match what runs; a rename is its own change.
+
+## 2026-09-17 — API server on the Mac mini
+- Done: deploy/com.local-shazam.api.plist keeps local-shazam-server running on 0.0.0.0:8000 as dave; install-mac-mini installs all four LaunchDaemons; scripts/deploy ends the running API server after uv sync so launchd restarts it on the deployed code; README has a Mac mini section.
+- By hand: none. The agent wrote the criterion and table at the user's request.
+- Observed: not yet. Signal: tests/macmini/test_api_server_on_mac_mini.py passes after install and again after a restart, then the frame shows a restyled photo once its client points at davids-mac-mini.local:8000.
+- Accepted: cf0dc70
+- Learned: **no API server was running on ai-server when this work started**: nothing listened on port 8000 and the only container was llama-swap, so none of these merges could break a live frame.
+- Decided: scripts/deploy restarts only the API server, with pkill on this checkout's .venv/bin/local-shazam-server path. Tradeoff: no automated test covers that line (deleting it leaves the suite green); the vision model and Flux servers keep old code until a restart, because each reload costs minutes of model loading.
+- Decided: every boot restarts the API server once after the boot deploy's uv sync. Tradeoff: a few seconds of downtime at boot.
+- Decided: DATA_DIR stays at data/ inside the checkout on the Mac mini. Tradeoff: photos live next to the code; the two photos in the laptop's data/ were not copied.
