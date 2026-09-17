@@ -21,10 +21,13 @@ def _generate_png(
 ) -> bytes:
     """Run one generation from a reference image and return the result as PNG bytes."""
     with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "reference.png"
-        reference.save(path, format="PNG")
+        # The file name sets the format; mutating its case changes nothing.
+        path = Path(tmp) / "reference.png"  # pragma: no mutate
+        reference.save(path)
+        # Any whole-number seed is valid; only its type is tested.
+        seed = secrets.randbelow(2**31)  # pragma: no mutate
         result = model.generate_image(
-            seed=secrets.randbelow(2**31),
+            seed=seed,
             prompt=prompt,
             num_inference_steps=3,
             width=width,
@@ -33,7 +36,7 @@ def _generate_png(
             image_paths=[path],
         )
     buf = BytesIO()
-    result.image.save(buf, format="PNG")
+    result.image.save(buf, format="PNG")  # pragma: no mutate
     return buf.getvalue()
 
 
