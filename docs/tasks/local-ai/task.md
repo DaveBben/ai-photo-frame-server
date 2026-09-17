@@ -12,8 +12,8 @@ Decided:   REST over FastAPI, one API server process: src/local_shazam/api/route
            Flux runs on the Mac mini in its own process on 0.0.0.0:8081, answering the OpenAI images format, with its code in this repo; the API server moves from ai-server to the Mac mini; every process there starts from a LaunchDaemon: docs/adr/local-ai/generate-restyled-images-on-the-mac-mini.md.
 Deferred:  none yet.
 Pins:      scripts/deploy fast-forwards main and syncs dependencies: tests/test_deploy.py.
-Slices:    Bug: after a restart, the Mac mini deploys main even when the network is not up when the LaunchDaemon starts.
-           1. Caption an image with the vision model server on the Mac mini, and have it still answer after a reboot.
+           Boot deploy reruns until it succeeds: tests/test_deploy_plist.py.
+Slices:    1. Caption an image with the vision model server on the Mac mini, and have it still answer after a reboot.
            2. Edit an image with the Flux server on the Mac mini, and have it still answer after a reboot.
            3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
            4. Look up a new song's look from its album cover.
@@ -33,3 +33,11 @@ Slices:    Bug: after a restart, the Mac mini deploys main even when the network
 - Decided: nothing retries when the network is not up at boot; the failed fetch is logged and the previous checkout stays. Tradeoff: that boot deploys nothing until the next restart or a manual deploy.
 - Decided: the LaunchDaemon hardcodes /Users/dave/ai-photo-frame-server. Tradeoff: the checkout must live at that path.
 - Not caught by: the red run and the one pass with a working script both ran outside a git hook, where GIT_INDEX_FILE is unset. Found by the log commit's hook; the user re-accepted the test with GIT_ variables dropped.
+
+## 2026-09-16 — Boot deploy waits for the network
+- Done: deploy/com.local-shazam.deploy.plist sets KeepAlive with SuccessfulExit false and ThrottleInterval 30, so launchd reruns scripts/deploy every 30s after a failed exit and stops after the first success.
+- Observed: not yet. Signal: after `scripts/install-mac-mini` is rerun and the Mac mini restarts, ~/Library/Logs/local-shazam-deploy.log shows any "Could not resolve host" lines followed by a "deployed" line from that boot.
+- Accepted: 8a3fc01
+- Decided: a deploy that fails for a lasting reason, such as local commits blocking the fast-forward, retries every 30s until fixed. Tradeoff: one git fetch and a few log lines every 30s while it is broken.
+- Decided: ThrottleInterval is 30s. Tradeoff: a boot waits up to 30s past the network coming up before deploying.
+- Not caught by: the proposal for the first deploy listed "the network is up when the LaunchDaemon runs at boot" as an assumption to check by restart, and nothing automated can restart a Mac. The restart found it. tests/test_deploy_plist.py now asserts the retry keys; the boot behaviour itself stays a manual check.
