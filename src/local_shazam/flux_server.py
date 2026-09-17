@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import os
 import secrets
 import tempfile
 import time
@@ -18,6 +19,11 @@ from PIL import Image
 
 # MLX evaluates a graph only on the thread that built it, and the Mac mini has one GPU.
 _worker = ThreadPoolExecutor(max_workers=1)
+# A forked process copies the executor without its thread, so mutmut's forked
+# test runs would wait forever; give each child its own executor.
+os.register_at_fork(
+    after_in_child=lambda: globals().update(_worker=ThreadPoolExecutor(max_workers=1))
+)
 
 
 def _generate_png(
