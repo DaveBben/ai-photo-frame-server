@@ -90,7 +90,7 @@ async def test_uncached_song_is_described_from_its_album_cover(frame: Frame) -> 
     assert dict(itunes.url.params) == {
         "term": f"{SONG} {ARTIST}",
         "entity": "song",
-        "limit": "1",
+        "limit": "25",
     }
     assert len(frame.searches) == 1
     request = frame.searches[0]
@@ -200,3 +200,63 @@ async def test_transform_caches_the_aesthetic_for_get_aesthetic(frame: Frame) ->
 
     assert response.json() == {"aesthetic": AESTHETIC}
     assert len(frame.searches) == 1
+
+
+async def test_song_missing_from_search_is_found_in_the_artists_catalog(
+    frame: Frame,
+) -> None:
+    """Live 2026-09-17: iTunes search for "365 Charli XCX" never lists 365, and its top
+    result, "party 4 u" from how i'm feeling now, was used as the song's cover."""
+    party = {
+        "trackName": "party 4 u",
+        "artistName": "Charli xcx",
+        "collectionName": "how i'm feeling now",
+        "primaryGenreName": "Pop",
+        "releaseDate": "2020-05-15T12:00:00Z",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/hifn/100x100bb.jpg",
+    }
+    brat_365 = {
+        **party,
+        "wrapperType": "track",
+        "trackName": "365",
+        "collectionName": "BRAT",
+        "releaseDate": "2024-06-07T12:00:00Z",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/brat/100x100bb.jpg",
+    }
+    brat_cover = b"\xff\xd8BRAT-COVER"
+    # Replaces the fixture's catch-all iTunes route, which is named "itunes".
+    frame.mock.get(
+        ITUNES_SEARCH, name="itunes", params__contains={"entity": "song"}
+    ).respond(200, json={"resultCount": 1, "results": [party]})
+    frame.mock.get(ITUNES_SEARCH, params__contains={"entity": "musicArtist"}).respond(
+        200,
+        json={
+            "resultCount": 1,
+            "results": [{"artistName": "Charli xcx", "artistId": 432942256}],
+        },
+    )
+    frame.mock.get(
+        "https://itunes.apple.com/lookup",
+        params__contains={"id": "432942256", "entity": "song"},
+    ).respond(
+        200,
+        json={
+            "resultCount": 2,
+            "results": [{"wrapperType": "artist", "artistId": 432942256}, brat_365],
+        },
+    )
+    frame.mock.get(
+        "https://is1-ssl.mzstatic.com/image/thumb/brat/600x600bb.jpg"
+    ).respond(200, content=brat_cover)
+
+    response = await frame.client.get(
+        "/aesthetic", params={"song_title": "365", "artist": "Charli XCX"}
+    )
+
+    assert response.status_code == 200
+    cover, text = frame.searches[0]["messages"][1]["content"]  # type: ignore[index]
+    assert cover["image_url"]["url"] == (
+        "data:image/jpeg;base64," + base64.b64encode(brat_cover).decode()
+    )
+    assert "Track: 365" in text["text"]
+    assert "Album: BRAT" in text["text"]

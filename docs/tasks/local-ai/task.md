@@ -167,3 +167,14 @@ Slices:    3. Restyle a photo with the image made by the local Flux server, serv
 - Decided: scripts/deploy restarts only the API server, with pkill on this checkout's .venv/bin/local-shazam-server path. Tradeoff: no automated test covers that line (deleting it leaves the suite green); the vision model and Flux servers keep old code until a restart, because each reload costs minutes of model loading.
 - Decided: every boot restarts the API server once after the boot deploy's uv sync. Tradeoff: a few seconds of downtime at boot.
 - Decided: DATA_DIR stays at data/ inside the checkout on the Mac mini. Tradeoff: photos live next to the code; the two photos in the laptop's data/ were not copied.
+
+## 2026-09-17 — Bug: song look used the wrong song's album cover
+- Done: ItunesClient uses the first search result (limit 25) whose title equals the song ignoring case and whose artist contains the requested artist ignoring case; otherwise it searches the artist and looks through up to 200 of their songs; no match is still "No catalog data found."
+- By hand: none. The agent wrote the criterion and table at the user's request.
+- Observed: not yet. Signal: after deploy and deleting the cached "365" look on the Mac mini, restyling IMG_3216.JPG for "365" by Charli XCX sends the BRAT cover.
+- Accepted: 0b7c9da
+- Learned: **iTunes search for "365 Charli XCX" does not list 365 in its top 200 results, and its top result is "party 4 u"**; find_song took results[0], so the song look described how i'm feeling now's cover. The artist lookup (id 432942256, entity song, limit 200) lists 365 on BRAT. Pinned by tests/test_aesthetic_route.py::test_song_missing_from_search_is_found_in_the_artists_catalog.
+- Learned: **the frame's client (ai-photo-frame-client, recognition.py) sends Shazam's track subtitle as song_artists and waits 60s for POST /images (app.py, ImageClient timeout=60.0)**. A first play of a new song took 23.1s for the look plus 41.4s for the restyle on the Mac mini, over that 60s.
+- Decided: exact title and contained artist, no fuzzy matching. Tradeoff: a title or artist written differently from iTunes ("Guess (feat. Billie Eilish)" against "Guess featuring Billie Eilish", "Lady Gaga, Bruno Mars" against "Lady Gaga & Bruno Mars") gets "No catalog data found." where results[0] often had the right cover.
+- Decided: a miss makes up to three iTunes requests before the cover, each with httpx's default 5s timeout per phase. Tradeoff: a slow miss adds seconds to a new song's look.
+- Not caught by: the item B tables faked iTunes with the right song first, and the macmini tests used songs whose top result is correct. The row above now fakes a wrong top result.
