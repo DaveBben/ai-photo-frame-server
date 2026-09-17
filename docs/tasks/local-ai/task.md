@@ -11,7 +11,7 @@ Decided:   REST over FastAPI, one API server process: src/local_shazam/api/route
            Python 3.13 for the API server: pyproject.toml.
            Flux runs on the Mac mini in its own process on 0.0.0.0:8081, answering the OpenAI images format, with its code in this repo; the API server moves from ai-server to the Mac mini; every process there starts from a LaunchDaemon: docs/adr/local-ai/generate-restyled-images-on-the-mac-mini.md.
 Deferred:  none yet.
-Slices:    0. Start the Mac mini and have it running the latest main of this repo, with dependencies installed.
+Slices:    0. Start the Mac mini and have it running the latest main of this repo, with dependencies installed; run scripts/deploy to do the same after a merge without a restart.
            1. Caption an image with the vision model server on the Mac mini, and have it still answer after a reboot.
            2. Edit an image with the Flux server on the Mac mini, and have it still answer after a reboot.
            3. Restyle a photo with the image made by the local Flux server, served by the API server on the Mac mini, which restarts after a reboot; the frame's client points at the Mac mini.
