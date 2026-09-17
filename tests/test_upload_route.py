@@ -69,7 +69,6 @@ async def frame(
 ) -> AsyncIterator[Frame]:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("BFL_API_KEY", "bfl-test")
 
     app = create_app()
     transport = httpx.ASGITransport(app=app)

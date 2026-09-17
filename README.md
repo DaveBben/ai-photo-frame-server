@@ -29,8 +29,8 @@ Set these environment variables (or use `.env` file):
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `BFL_API_KEY` | Yes | - | Black Forest Labs API key for Flux.2 |
 | `OPENAI_API_KEY` | Yes | - | OpenAI API key for GPT-4o |
+| `FLUX_BASE_URL` | No | `http://127.0.0.1:8081/v1` | Flux server's OpenAI images API |
 | `SERVER_HOST` | No | `0.0.0.0` | Server bind address |
 | `SERVER_PORT` | No | `8000` | Server port |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
