@@ -46,6 +46,7 @@ Slices:    2. Edit an image with the Flux server on the Mac mini, and have it st
 ## 2026-09-16 — Vision model server on the Mac mini
 - Done: mlx-vlm is a macOS-only dependency; deploy/com.local-shazam.vlm.plist keeps mlx_vlm.server with Qwen3-VL-4B-Instruct-4bit on 0.0.0.0:8080 at boot and after any exit; scripts/install-mac-mini installs both LaunchDaemons.
 - Observed: not yet. Signal: after deploy, reinstall and a restart of the Mac mini, `uv run pytest -m macmini` passes from the laptop.
+- Observed: seen 2026-09-16. After install the macmini test passed in 2.9s; after a restart the server's process was 50s old at 56s uptime (launchd runs = 1, never exited), the deploy log showed "deployed 385759f", and the test passed in 1.5s. 6.2GB free with the model loaded.
 - Accepted: 418c82c
 - Learned: **the spike's mlx_vlm.server ran under nohup and was gone after the Mac mini's first restart**, and the 608MB free before that restart became 11GB free after it. What used the memory is not established; `top -o mem` before the next unexplained drop would show it.
 - Decided: the server can start before the boot deploy's uv sync finishes; if mlx-vlm is missing it exits and launchd restarts it about 10s later. Tradeoff: a few failed starts in the log on the first boot after a dependency change.
