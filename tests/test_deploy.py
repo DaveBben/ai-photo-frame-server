@@ -35,7 +35,10 @@ def _env() -> dict[str, str]:
     env = {
         k: v
         for k, v in os.environ.items()
+        # A git hook exports GIT_INDEX_FILE and similar, which would point the
+        # fixture repos' git commands at the outer repo.
         if k not in {"VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT"}
+        and not k.startswith("GIT_")
     }
     env.update(
         UV_OFFLINE="1",
