@@ -74,8 +74,13 @@ plugins = ["pydantic.mypy"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
-addopts = "-ra -q --strict-markers -m 'not e2e'"
-markers = ["slow", "integration", "e2e: starts the real server process and calls it over HTTP"]
+addopts = "-ra -q --strict-markers -m 'not e2e and not macmini'"
+markers = [
+    "slow",
+    "integration",
+    "e2e: starts the real server process and calls it over HTTP",
+    "macmini: calls the real servers on the Mac mini over the network",
+]
 filterwarnings = ["error"]
 xfail_strict = true
 
