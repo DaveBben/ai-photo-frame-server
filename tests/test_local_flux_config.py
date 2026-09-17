@@ -12,6 +12,7 @@ import httpx
 import pytest
 import respx
 from PIL import Image
+from vlm_fakes import mock_itunes
 
 from local_shazam.server import create_app
 
@@ -65,6 +66,7 @@ async def test_flux_base_url_sends_the_edit_to_that_server(
                     ],
                 },
             )
+            mock_itunes(mock)
             edit = mock.post("http://flux.test:9000/v1/images/edits").respond(
                 200,
                 json={
