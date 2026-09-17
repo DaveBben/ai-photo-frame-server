@@ -11,7 +11,7 @@ Decided:   REST over FastAPI, one API server process: src/local_shazam/api/route
            Python 3.13 for the API server: pyproject.toml.
            Flux runs on the Mac mini in its own process on 0.0.0.0:8081, answering the OpenAI images format, with its code in this repo; the API server moves from ai-server to the Mac mini: docs/adr/local-ai/generate-restyled-images-on-the-mac-mini.md.
 Deferred:  none yet.
-Slices:    1. Restyle a photo with the image made by a local Flux model.
+Slices:    1. Restyle a photo with the image made by a local Flux model, served by the API server on the Mac mini.
            2. Look up a new song's look from its album cover.
            3. Restyle a photo with the edit prompt written by a local model.
            4. Upload a photo and have a local model describe it.
