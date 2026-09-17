@@ -1,5 +1,6 @@
 """Client for the iTunes Search API: a song's catalog facts and album cover."""
 
+import re
 from typing import Any
 
 import httpx
@@ -8,18 +9,37 @@ _SEARCH_URL = "https://itunes.apple.com/search"
 _LOOKUP_URL = "https://itunes.apple.com/lookup"
 
 
-def _matching_track(
+_STOP_WORDS = {"feat", "featuring", "ft", "with", "and", "the", "a"}
+
+
+def _words(text: str) -> set[str]:
+    """Return text's casefolded runs of letters and digits, minus joining words such as feat."""
+    return set(re.findall(r"[^\W_]+", text.casefold())) - _STOP_WORDS
+
+
+def _closest_track(
     results: list[dict[str, Any]], song: str, artist: str
 ) -> dict[str, Any] | None:
-    """Return the first track titled song whose artist contains artist, both ignoring case."""
+    """Return the track whose title and artist words overlap song and artist the most.
+
+    Overlap is shared words over all words. A track qualifies only when its title shares a
+    word with song, its artist shares a word with artist, and the overlap is at least one
+    half. The earlier track wins a tie.
+    """
+    wanted = _words(song) | _words(artist)
+    best, best_score = None, 0.0
     for result in results:
         if (
-            result.get("wrapperType") != "artist"
-            and result["trackName"].casefold() == song.casefold()
-            and artist.casefold() in result["artistName"].casefold()
+            result.get("wrapperType") == "artist"
+            or not _words(song) & _words(result["trackName"])
+            or not _words(artist) & _words(result["artistName"])
         ):
-            return result
-    return None
+            continue
+        found = _words(result["trackName"]) | _words(result["artistName"])
+        score = len(wanted & found) / len(wanted | found)
+        if score > best_score:
+            best, best_score = result, score
+    return best if best_score >= 0.5 else None
 
 
 class ItunesClient:
@@ -42,7 +62,7 @@ class ItunesClient:
                     },
                 )
                 search.raise_for_status()
-                track = _matching_track(search.json()["results"], song, artist)
+                track = _closest_track(search.json()["results"], song, artist)
                 if track is None:
                     artists = await client.get(
                         _SEARCH_URL,
@@ -58,7 +78,7 @@ class ItunesClient:
                         },
                     )
                     catalog.raise_for_status()
-                    track = _matching_track(catalog.json()["results"], song, artist)
+                    track = _closest_track(catalog.json()["results"], song, artist)
                 if track is None:
                     return None
                 cover = await client.get(
