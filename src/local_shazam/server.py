@@ -55,11 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    app = FastAPI(
-        title="local-shazam",
-        description="Image transformation server",
-        lifespan=lifespan,
-    )
+    app = FastAPI(lifespan=lifespan)
     app.include_router(http_router)
     return app
 
@@ -67,8 +63,6 @@ def create_app() -> FastAPI:
 def main() -> None:
     """Entry point for the server."""
     settings = Settings()
-    setup_root_logger(level=settings.log_level)
-
     uvicorn.run(
         "local_shazam.server:create_app",
         factory=True,
