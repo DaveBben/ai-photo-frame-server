@@ -1,164 +1,111 @@
-"""OpenAI API client for GPT-4o vision and chat completions."""
+"""Client for the vision model server on the Mac mini, which answers the OpenAI chat completions format."""
 
-from typing import TYPE_CHECKING, Any
+import base64
+from typing import Any
 
+import openai
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 from local_shazam.exceptions import ServiceError
-from local_shazam.logger import get_logger
 from local_shazam.prompts import load_prompt
-
-if TYPE_CHECKING:
-    from openai.types.chat import ChatCompletionMessageParam
-
-log = get_logger(__name__)
 
 type ContentBlock = dict[str, Any]
 
+_MODEL = "mlx-community/Qwen3-VL-4B-Instruct-4bit"
+# The spike measured 13-29s per request with the Mac mini otherwise idle; a Flux
+# edit running on the same GPU slows it further.
+_TIMEOUT_S = 120.0
+# The vision model server does not read the key, but the openai package requires one.
+_API_KEY = "unused"  # pragma: no mutate
+
 
 class OpenAIClient:
-    """Async client for OpenAI GPT-4o vision and chat APIs."""
+    """Async client for the vision model server's /chat/completions."""
 
-    def __init__(self, api_key: str, timeout: float = 60.0) -> None:
-        self._client = AsyncOpenAI(api_key=api_key, timeout=timeout)
+    def __init__(self, base_url: str) -> None:
+        self._base_url = base_url
 
-    async def describe_image(
-        self,
-        image_b64: str,
-        prompt: str,
-        *,
-        max_tokens: int = 800,
-        mime_type: str = "image/jpeg",
+    async def _complete(
+        self, messages: list[ChatCompletionMessageParam], max_tokens: int
     ) -> str:
-        """Describe an image using GPT-4o vision.
-
-        Args:
-            image_b64: Base64-encoded image data.
-            prompt: System prompt describing desired output format.
-            max_tokens: Maximum tokens in response.
-            mime_type: MIME type of the image.
-
-        Returns:
-            The model's text response.
-
-        Raises:
-            ServiceError: If the API call fails or returns empty content.
-        """
-        image_url = f"data:{mime_type};base64,{image_b64}"
-
-        messages: list[ChatCompletionMessageParam] = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                    {"type": "text", "text": prompt},
-                ],
-            },
-        ]
-        log.info(
-            "describe_image request: prompt=%r, image_size=%d, mime_type=%s",
-            prompt[:100],
-            len(image_b64),
-            mime_type,
-        )
-
-        response = await self._client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            max_tokens=max_tokens,
-        )
-
+        # max_retries=0: a failed 30s request is reported, not re-sent.
+        # One client per call closes its socket when the reply returns.
+        try:
+            async with AsyncOpenAI(
+                base_url=self._base_url,
+                api_key=_API_KEY,
+                timeout=_TIMEOUT_S,
+                max_retries=0,
+            ) as client:
+                response = await client.chat.completions.create(
+                    model=_MODEL, messages=messages, max_tokens=max_tokens
+                )
+        except openai.APIError as e:
+            raise ServiceError(f"Vision model failed: {e}") from e
         content = response.choices[0].message.content
         if not content:
-            raise ServiceError("GPT-4o returned empty response")
+            raise ServiceError("Vision model returned an empty response")
+        return content.strip()
 
-        result = content.strip()
-        log.info(
-            "describe_image response: %r", result[:400] if len(result) > 400 else result
-        )
-        return result
-
-    async def chat(
-        self,
-        system_prompt: str,
-        user_content: list[ContentBlock],
-        *,
-        max_tokens: int = 200,
+    async def describe_image(
+        self, image_b64: str, prompt: str, *, max_tokens: int
     ) -> str:
-        """Send a chat completion request with system and user messages.
-
-        Args:
-            system_prompt: System message setting context/behavior.
-            user_content: User message content blocks (text and/or image_url).
-            max_tokens: Maximum tokens in response.
-
-        Returns:
-            The model's text response.
+        """Describe a base64 JPEG with the prompt.
 
         Raises:
-            ServiceError: If the API call fails or returns empty content.
+            ServiceError: If the server fails, cannot be reached, or returns empty content.
         """
-        log.debug(
-            "chat request: system_prompt=%r, user_content=%r",
-            system_prompt[:100],
-            user_content,
+        return await self._complete(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ],
+            max_tokens,
         )
 
-        response = await self._client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
+    async def chat(
+        self, system_prompt: str, user_content: list[ContentBlock], *, max_tokens: int
+    ) -> str:
+        """Send a system message and user content blocks, and return the reply.
+
+        Raises:
+            ServiceError: If the server fails, cannot be reached, or returns empty content.
+        """
+        return await self._complete(
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},  # type: ignore[list-item, misc]
             ],
-            max_tokens=max_tokens,
+            max_tokens,
         )
 
-        content = response.choices[0].message.content
-        if not content:
-            raise ServiceError("GPT-4o returned empty response")
-
-        result = content.strip()
-        log.info("chat response: %r", result[:1000] if len(result) > 1000 else result)
-        return result
-
-    async def search_aesthetic(self, artist: str, song: str) -> str:
-        """Search web for song/artist visual aesthetic.
-
-        Uses gpt-4o-search-preview which ALWAYS performs a web search.
-        Returns ~150 word description of colors, mood, album art, visual style.
-
-        Args:
-            artist: Artist name.
-            song: Song title.
-
-        Returns:
-            Aesthetic description with visual details, colors, mood.
+    async def describe_song(
+        self, song: str, artist: str, facts: str, cover: bytes | None
+    ) -> str:
+        """Describe the song's look from its catalog facts and album cover JPEG.
 
         Raises:
-            ServiceError: If the API call fails or returns empty content.
+            ServiceError: If the server fails, cannot be reached, or returns empty content.
         """
-        log.info("search_aesthetic request: '%s' by %s", song, artist)
-
-        system_prompt = load_prompt("search_aesthetic")
-
-        user_message = f'Song: "{song}"\nArtist: {artist}'
-
-        response = await self._client.chat.completions.create(
-            model="gpt-4o-search-preview",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            max_tokens=1000,
+        text = (
+            f'Song: "{song}"\nArtist: {artist}\n\nCATALOG DATA:\n{facts}\n\n'
+            f"The attached image is this release's official album cover. Read its actual "
+            f"colors, textures and lighting and treat them as primary evidence for the "
+            f"Sacred Elements section. Combine with what you know about the artist."
         )
-
-        content = response.choices[0].message.content
-        if not content:
-            raise ServiceError("gpt-4o-search-preview returned empty response")
-
-        result = content.strip()
-        log.info(
-            "search_aesthetic response: %r",
-            result[:400] if len(result) > 400 else result,
+        content: list[ContentBlock] = [{"type": "text", "text": text}]
+        if cover:
+            url = f"data:image/jpeg;base64,{base64.b64encode(cover).decode()}"
+            content.insert(0, {"type": "image_url", "image_url": {"url": url}})
+        return await self.chat(
+            load_prompt("search_aesthetic"), content, max_tokens=1000
         )
-        return result

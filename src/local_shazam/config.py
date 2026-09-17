@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     Attributes:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
         flux_base_url: Base URL of the Flux server's OpenAI images API.
-        openai_api_key: OpenAI API key for GPT-4o vision and chat.
+        vlm_base_url: Base URL of the vision model server's OpenAI chat API.
         server_host: Host address to bind the server to.
         server_port: Port number for the HTTP server.
         data_dir: Directory holding stored images and the aesthetic cache.
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     flux_base_url: str = "http://127.0.0.1:8081/v1"
-    openai_api_key: str = ""
+    vlm_base_url: str = "http://127.0.0.1:8080/v1"
 
     # Server settings
     server_host: str = "0.0.0.0"  # noqa: S104

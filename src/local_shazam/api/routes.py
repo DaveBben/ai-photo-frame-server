@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from local_shazam.aesthetic_cache import AestheticCache
     from local_shazam.flux2_client import Flux2Client
     from local_shazam.image_store import ImageStore
+    from local_shazam.itunes_client import ItunesClient
     from local_shazam.openai_client import OpenAIClient
 
 router = APIRouter()
@@ -34,7 +35,7 @@ async def health_check() -> dict[str, str]:
 async def upload_image(request: Request, file: UploadFile) -> dict[str, str]:
     """Upload an image to the store.
 
-    The image will be analyzed with GPT-4o and saved with its description.
+    The image will be described by the vision model and saved with its description.
 
     Args:
         request: FastAPI request (provides access to app state).
@@ -111,6 +112,7 @@ async def transform_image_endpoint(
     """
     image_store: ImageStore = request.app.state.image_store
     openai_client: OpenAIClient = request.app.state.openai_client
+    itunes_client: ItunesClient = request.app.state.itunes_client
     flux_client: Flux2Client = request.app.state.flux_client
     aesthetic_cache: AestheticCache = request.app.state.aesthetic_cache
 
@@ -122,6 +124,7 @@ async def transform_image_endpoint(
     try:
         png_bytes = await pipeline.transform(
             openai_client=openai_client,
+            itunes_client=itunes_client,
             flux_client=flux_client,
             aesthetic_cache=aesthetic_cache,
             image_path=image_path,
@@ -151,11 +154,13 @@ async def get_aesthetic(
         JSON with the aesthetic description.
     """
     openai_client: OpenAIClient = request.app.state.openai_client
+    itunes_client: ItunesClient = request.app.state.itunes_client
     aesthetic_cache: AestheticCache = request.app.state.aesthetic_cache
 
     try:
         aesthetic = await pipeline.get_aesthetic(
             openai_client=openai_client,
+            itunes_client=itunes_client,
             aesthetic_cache=aesthetic_cache,
             song_name=song_title,
             artist_name=artist,

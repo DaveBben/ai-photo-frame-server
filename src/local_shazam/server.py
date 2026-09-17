@@ -13,6 +13,7 @@ from local_shazam.api.routes import router as http_router
 from local_shazam.config import Settings
 from local_shazam.flux2_client import Flux2Client
 from local_shazam.image_store import ImageStore
+from local_shazam.itunes_client import ItunesClient
 from local_shazam.logger import get_logger, setup_root_logger
 from local_shazam.openai_client import OpenAIClient
 
@@ -22,24 +23,18 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-def _validate_settings(settings: Settings) -> None:
-    """Validate required settings at startup."""
-    if not settings.openai_api_key:
-        raise RuntimeError("Missing required environment variables: OPENAI_API_KEY")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize and cleanup application resources."""
     settings = Settings()
     setup_root_logger(level=settings.log_level)
-    _validate_settings(settings)
 
     log.info("Initializing server...")
     app.state.settings = settings
     app.state.image_store = ImageStore(settings.data_dir / "img")
     app.state.aesthetic_cache = AestheticCache(settings.data_dir / "aesthetic_cache.db")
-    app.state.openai_client = OpenAIClient(settings.openai_api_key)
+    app.state.openai_client = OpenAIClient(settings.vlm_base_url)
+    app.state.itunes_client = ItunesClient()
     app.state.flux_client = Flux2Client(settings.flux_base_url)
     log.info("Server initialized")
 
