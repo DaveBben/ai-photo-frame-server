@@ -11,7 +11,7 @@ class ItunesClient:
     async def find_song(self, song: str, artist: str) -> tuple[str, bytes] | None:
         """Return the top match's catalog facts and 600x600 cover JPEG.
 
-        Returns None when iTunes has no match, answers an error, or cannot be reached.
+        Returns None when iTunes has no match, answers an error or an incomplete result, or cannot be reached.
         """
         try:
             async with httpx.AsyncClient() as client:
@@ -28,13 +28,14 @@ class ItunesClient:
                     track["artworkUrl100"].replace("100x100bb.jpg", "600x600bb.jpg")
                 )
                 cover.raise_for_status()
-        except httpx.HTTPError:
+            facts = (
+                f"Track: {track['trackName']}\n"
+                f"Artist: {track['artistName']}\n"
+                f"Album: {track.get('collectionName')}\n"
+                f"Genre: {track.get('primaryGenreName')}\n"
+                f"Released: {track['releaseDate'][:10]}"
+            )
+        # ValueError: a non-JSON body. KeyError: a result missing a field used above.
+        except (httpx.HTTPError, ValueError, KeyError):
             return None
-        facts = (
-            f"Track: {track['trackName']}\n"
-            f"Artist: {track['artistName']}\n"
-            f"Album: {track.get('collectionName')}\n"
-            f"Genre: {track.get('primaryGenreName')}\n"
-            f"Released: {track['releaseDate'][:10]}"
-        )
         return facts, cover.content
