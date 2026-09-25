@@ -9,18 +9,18 @@ Built in 2 days with heavy AI assistance. Expect rough edges.
 
 ## How it works
 
-1. Upload an image → the vision model describes it
-2. Provide a song title and artist → the vision model describes the song's look from its iTunes album cover and catalog data
-3. Request transformation → the vision model writes an edit prompt, and Flux.2 Klein 4B transforms your image to match the song's vibe
+Send a photo with a song title and artist in one request. The server keeps the photo in memory and writes no copy of it or of the result:
+
+1. The vision model describes the photo
+2. The vision model describes the song's look from its iTunes album cover and catalog data (cached)
+3. The vision model writes an edit prompt, and Flux.2 Klein 4B transforms the photo to match the song's vibe
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
-| `/images` | PUT | Upload image (described by the vision model) |
-| `/images` | GET | Get random stored image |
-| `/images` | POST | Transform image to match song aesthetic |
+| `/images` | POST | Restyle the photo sent as multipart `file`, with form fields `song_title` and `song_artists`, and return an 800x480 PNG |
 | `/aesthetic` | GET | Get visual aesthetic description for a song |
 
 ## Configuration
@@ -34,7 +34,7 @@ Set these environment variables (or use `.env` file):
 | `SERVER_HOST` | No | `0.0.0.0` | Server bind address |
 | `SERVER_PORT` | No | `8000` | Server port |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
-| `DATA_DIR` | No | `data/` in the repo | Stored images and the aesthetic cache |
+| `DATA_DIR` | No | `data/` in the repo | The aesthetic cache |
 
 ## Mac mini
 
