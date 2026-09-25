@@ -115,7 +115,6 @@ forbidden_modules = [
     "local_shazam.openai_client",
     "local_shazam.flux2_client",
     "local_shazam.itunes_client",
-    "local_shazam.image_store",
     "local_shazam.aesthetic_cache",
     "local_shazam.config",
     "local_shazam.server",
@@ -133,7 +132,7 @@ name = "ADR item 4: model clients and stores import no api, pipeline, server, co
 type = "layers"
 layers = [
     "local_shazam.api : local_shazam.pipeline : local_shazam.server : local_shazam.config",
-    "local_shazam.openai_client | local_shazam.flux2_client | local_shazam.itunes_client | local_shazam.image_store | local_shazam.aesthetic_cache",
+    "local_shazam.openai_client | local_shazam.flux2_client | local_shazam.itunes_client | local_shazam.aesthetic_cache",
 ]
 
 [[tool.importlinter.contracts]]

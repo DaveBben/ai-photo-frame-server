@@ -1,18 +1,12 @@
-"""Orchestration for the upload step (save, describe, save the described copy), the aesthetic step (look up a song's aesthetic, cache first) and the transform step (write the edit prompt, then call the image model)."""
+"""Orchestration for the aesthetic step (look up a song's aesthetic, cache first) and the transform step (caption the photo, write the edit prompt, then call the image model), all in memory."""
 
 import base64
-import uuid
 from io import BytesIO
-from pathlib import Path
-from uuid import UUID
 
-import anyio
 from PIL import Image, ImageOps
 
 from local_shazam.aesthetic_cache import AestheticCache
-from local_shazam.exceptions import ServiceError
 from local_shazam.flux2_client import Flux2Client
-from local_shazam.image_store import ImageStore, extract_image_metadata
 from local_shazam.itunes_client import ItunesClient
 from local_shazam.openai_client import OpenAIClient
 from local_shazam.prompts import load_prompt
@@ -36,24 +30,6 @@ async def _describe_image(client: OpenAIClient, img: Image.Image) -> str:
     return await client.describe_image(
         b64_data, load_prompt("describe_image"), max_tokens=800
     )
-
-
-async def describe_and_store(
-    openai_client: OpenAIClient,
-    image_store: ImageStore,
-    image: Image.Image,
-) -> UUID:
-    """Save the upright RGB photo, describe it with the vision model, save the described copy, and return its id."""
-    image_id = uuid.uuid4()
-
-    img = ImageOps.exif_transpose(image).convert("RGB")
-
-    image_store.save_original(image_id, img)
-
-    description = await _describe_image(openai_client, img)
-
-    image_store.save_described(image_id, img, description)
-    return image_id
 
 
 async def get_aesthetic(
@@ -80,11 +56,11 @@ async def _generate_flux_prompt(
     client: OpenAIClient,
     itunes_client: ItunesClient,
     cache: AestheticCache,
-    image_path: Path,
+    description: str,
     song_name: str,
     artist_name: str,
 ) -> str:
-    """Ask the vision model for a Flux.2 edit prompt from the photo's stored description and the song's aesthetic."""
+    """Ask the vision model for a Flux.2 edit prompt from the photo's caption and the song's aesthetic."""
     aesthetic = await get_aesthetic(
         openai_client=client,
         itunes_client=itunes_client,
@@ -92,9 +68,6 @@ async def _generate_flux_prompt(
         song_name=song_name,
         artist_name=artist_name,
     )
-
-    # The stored copy's EXIF holds only the description (ImageStore.save_described).
-    description = extract_image_metadata(image_path)["description"]
 
     user_message = (
         f"Transform this photo to match the vibe of '{song_name}' by {artist_name}.\n\n"
@@ -115,22 +88,22 @@ async def transform(
     itunes_client: ItunesClient,
     flux_client: Flux2Client,
     aesthetic_cache: AestheticCache,
-    image_path: Path,
+    image: Image.Image,
     song_name: str,
     artist_name: str,
 ) -> bytes:
-    """Write the edit prompt from the song's aesthetic and the photo's metadata, send the photo and prompt to the image model, and return the PNG bytes it produced."""
-    if not await anyio.Path(image_path).exists():
-        raise ServiceError(f"Image not found: {image_path}")
-
+    """Caption the upright RGB photo, write the edit prompt from the caption and the song's aesthetic, send the photo and prompt to the image model, and return the PNG bytes it produced."""
+    img = ImageOps.exif_transpose(image).convert("RGB")
+    description = await _describe_image(openai_client, img)
     flux_prompt = await _generate_flux_prompt(
         openai_client,
         itunes_client,
         aesthetic_cache,
-        image_path,
+        description,
         song_name,
         artist_name,
     )
-    image_bytes = await anyio.Path(image_path).read_bytes()
-    image_b64 = base64.b64encode(image_bytes).decode()
+    buf = BytesIO()
+    img.save(buf, format=_JPEG, quality=95)
+    image_b64 = base64.b64encode(buf.getvalue()).decode()
     return await flux_client.generate_image(flux_prompt, image_b64)
