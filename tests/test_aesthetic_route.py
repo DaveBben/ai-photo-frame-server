@@ -184,17 +184,16 @@ async def test_empty_search_reply_returns_502_with_reason(frame: Frame) -> None:
 async def test_transform_caches_the_aesthetic_for_get_aesthetic(frame: Frame) -> None:
     photo = BytesIO()
     Image.new("RGB", (64, 48), "red").save(photo, format="JPEG")
-    upload = await frame.client.put(
-        "/images", files={"file": ("photo.jpg", photo.getvalue(), "image/jpeg")}
+    frame.mock.post("http://127.0.0.1:8081/v1/images/edits").respond(
+        200,
+        json={"created": 0, "data": [{"b64_json": base64.b64encode(b"P").decode()}]},
     )
-    await frame.client.post(
+    restyle = await frame.client.post(
         "/images",
-        params={
-            "image_id": upload.json()["image_id"],
-            "song_title": SONG,
-            "song_artists": ARTIST,
-        },
+        data={"song_title": SONG, "song_artists": ARTIST},
+        files={"file": ("photo.jpg", photo.getvalue(), "image/jpeg")},
     )
+    assert restyle.status_code == 200, restyle.text
 
     response = await frame.aesthetic()
 
