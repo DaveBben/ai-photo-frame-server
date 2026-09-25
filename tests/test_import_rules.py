@@ -42,7 +42,7 @@ def test_current_code_passes_the_import_rules(tmp_path: Path) -> None:
     assert _lint_copy(tmp_path) == 0
 
 
-@pytest.mark.parametrize("module", ["api/routes.py", "image_store.py"])
+@pytest.mark.parametrize("module", ["api/routes.py", "aesthetic_cache.py"])
 def test_client_import_outside_pipeline_fails_the_import_rules(
     tmp_path: Path, module: str
 ) -> None:

@@ -12,7 +12,6 @@ from local_shazam.aesthetic_cache import AestheticCache
 from local_shazam.api.routes import router as http_router
 from local_shazam.config import Settings
 from local_shazam.flux2_client import Flux2Client
-from local_shazam.image_store import ImageStore
 from local_shazam.itunes_client import ItunesClient
 from local_shazam.logger import get_logger, setup_root_logger
 from local_shazam.openai_client import OpenAIClient
@@ -31,7 +30,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     log.info("Initializing server...")
     app.state.settings = settings
-    app.state.image_store = ImageStore(settings.data_dir / "img")
     app.state.aesthetic_cache = AestheticCache(settings.data_dir / "aesthetic_cache.db")
     app.state.openai_client = OpenAIClient(settings.vlm_base_url)
     app.state.itunes_client = ItunesClient()

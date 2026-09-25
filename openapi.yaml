@@ -23,12 +23,16 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
 
   /images:
-    put:
-      summary: Upload image
+    post:
+      summary: Restyle image
       description: |
-        Upload an image to the store. The image will be analyzed with GPT-4o
-        and saved with its description in EXIF metadata.
-      operationId: upload_image
+        Restyle the photo sent with the request to match a song's visual aesthetic.
+        The server keeps the photo in memory and writes no copy of it or of the result.
+        1. The vision model captions the photo
+        2. Lookup/fetch visual aesthetic for the song (cached in SQLite)
+        3. The vision model writes an edit prompt from the caption and the aesthetic
+        4. The Flux server executes the image transformation
+      operationId: transform_image
       requestBody:
         required: true
         content:
@@ -37,88 +41,41 @@ paths:
               type: object
               required:
                 - file
+                - song_title
+                - song_artists
               properties:
                 file:
                   type: string
                   format: binary
-                  description: Image file (JPEG, PNG)
+                  description: Photo file (JPEG, PNG), at most 10 MB
+                song_title:
+                  type: string
+                  description: Name of the song
+                song_artists:
+                  type: string
+                  description: Artist name(s)
       responses:
         "200":
-          description: Image uploaded successfully
+          description: Transformed 800x480 image
           content:
-            application/json:
+            image/png:
               schema:
-                $ref: "#/components/schemas/UploadResponse"
+                type: string
+                format: binary
         "400":
           description: Invalid image file
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
-    get:
-      summary: Get random image
-      description: Returns a random analyzed image from the store.
-      operationId: get_random_image
-      responses:
-        "200":
-          description: Random image returned
-          headers:
-            X-Image-ID:
-              description: UUID of the returned image
-              schema:
-                type: string
-                format: uuid
-          content:
-            image/jpeg:
-              schema:
-                type: string
-                format: binary
-        "404":
-          description: No images available
+        "413":
+          description: File larger than 10 MB
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
-    post:
-      summary: Transform image
-      description: |
-        Transform an image to match a song's visual aesthetic using a three-stage pipeline:
-        1. Lookup/fetch visual aesthetic for the song (cached in SQLite)
-        2. GPT-4o generates a Flux.2 prompt using aesthetic + image context
-        3. Flux.2 Klein 9B executes the image transformation
-      operationId: transform_image
-      parameters:
-        - name: image_id
-          in: query
-          required: true
-          description: UUID of a previously uploaded image
-          schema:
-            type: string
-            format: uuid
-        - name: song_title
-          in: query
-          required: true
-          description: Name of the song
-          schema:
-            type: string
-        - name: song_artists
-          in: query
-          required: true
-          description: Artist name(s)
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Transformed image
-          content:
-            image/png:
-              schema:
-                type: string
-                format: binary
-        "404":
-          description: Image not found
+        "502":
+          description: The vision model or the Flux server failed
           content:
             application/json:
               schema:
@@ -163,17 +120,6 @@ components:
         status:
           type: string
           example: healthy
-
-    UploadResponse:
-      type: object
-      required:
-        - image_id
-      properties:
-        image_id:
-          type: string
-          format: uuid
-          description: UUID assigned to the uploaded image
-          example: 550e8400-e29b-41d4-a716-446655440000
 
     ErrorResponse:
       type: object

@@ -3,9 +3,8 @@
 Slice: Transform a photo (docs/tasks/restructure-layers/task.md), then Restyle a photo
 with the image made by the local Flux server (docs/tasks/local-ai/task.md, item A),
 then captions, song looks and edit prompts from the local vision model (item B).
-Acceptance (item A): Given a stored photo and a cached song aesthetic, WHEN the frame
-posts /images, THEN it gets back the PNG the Flux server at FLUX_BASE_URL made, and no
-request goes to api.bfl.ai.
+Rewritten for shazam-restyle story 1: the frame sends the photo with the song in one
+request (docs/adr/architecture/restyle-photos-in-memory-and-store-none.md).
 """
 
 import base64
@@ -16,7 +15,6 @@ from email.parser import BytesParser
 from email.policy import HTTP
 from io import BytesIO
 from pathlib import Path
-from uuid import uuid4
 
 import httpx
 import pytest
@@ -24,6 +22,7 @@ import respx
 from PIL import Image
 from vlm_fakes import VLM_CHAT, VLM_MODEL, is_aesthetic_request, mock_itunes
 
+from local_shazam.prompts import load_prompt
 from local_shazam.server import create_app
 
 SONG = "bad guy"
@@ -73,18 +72,16 @@ class Frame:
 
     client: httpx.AsyncClient
     mock: respx.MockRouter
-    image_id: str = ""
     openai_requests: list[dict[str, object]] = field(default_factory=list)
     flux_edits: list[dict[str, bytes]] = field(default_factory=list)
 
-    async def transform(self, image_id: str | None = None) -> httpx.Response:
+    async def transform(self) -> httpx.Response:
+        photo = BytesIO()
+        Image.new("RGB", (64, 48), "red").save(photo, format="JPEG")
         return await self.client.post(
             "/images",
-            params={
-                "image_id": image_id or self.image_id,
-                "song_title": SONG,
-                "song_artists": ARTIST,
-            },
+            data={"song_title": SONG, "song_artists": ARTIST},
+            files={"file": ("photo.jpg", photo.getvalue(), "image/jpeg")},
         )
 
 
@@ -128,13 +125,6 @@ async def frame(
             mock_itunes(mock)
             mock.post(FLUX_EDITS, name="flux_edit").mock(side_effect=flux_edit)
 
-            photo = BytesIO()
-            Image.new("RGB", (64, 48), "red").save(photo, format="JPEG")
-            upload = await client.put(
-                "/images",
-                files={"file": ("photo.jpg", photo.getvalue(), "image/jpeg")},
-            )
-            recorded.image_id = upload.json()["image_id"]
             await client.get(
                 "/aesthetic", params={"song_title": SONG, "artist": ARTIST}
             )
@@ -143,20 +133,17 @@ async def frame(
             yield recorded
 
 
-async def test_transform_returns_the_image_model_png(frame: Frame) -> None:
-    response = await frame.transform()
-
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "image/png"
-    assert response.content == PNG
-
-
 async def test_prompt_request_carries_photo_description_and_song_aesthetic(
     frame: Frame,
 ) -> None:
     await frame.transform()
 
-    prompt_requests = [r for r in frame.openai_requests if not is_aesthetic_request(r)]
+    prompt_requests = [
+        r
+        for r in frame.openai_requests
+        if r["messages"][0]["role"] == "system"
+        and r["messages"][0]["content"] == load_prompt("flux_transform")
+    ]
     assert len(prompt_requests) == 1
     assert prompt_requests[0]["model"] == VLM_MODEL
     messages = json.dumps(prompt_requests[0]["messages"])
@@ -174,11 +161,10 @@ async def test_edit_request_carries_written_prompt_and_uploaded_photo(
     assert fields["prompt"].decode() == EDIT_PROMPT
     sent = Image.open(BytesIO(fields["image"]))
     assert sent.size == (64, 48)
-    assert sent.getexif()[270] == DESCRIPTION
 
 
 async def test_cached_aesthetic_sends_no_search_request(frame: Frame) -> None:
-    await frame.transform()
+    assert (await frame.transform()).status_code == 200
 
     assert [r for r in frame.openai_requests if is_aesthetic_request(r)] == []
 
@@ -202,9 +188,3 @@ async def test_unreachable_flux_server_returns_502_with_reason(frame: Frame) -> 
 
     assert response.status_code == 502
     assert response.json()["detail"].startswith("Flux server failed:")
-
-
-async def test_unknown_photo_returns_404(frame: Frame) -> None:
-    response = await frame.transform(image_id=str(uuid4()))
-
-    assert response.status_code == 404

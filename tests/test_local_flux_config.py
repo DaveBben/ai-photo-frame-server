@@ -76,16 +76,10 @@ async def test_flux_base_url_sends_the_edit_to_that_server(
             )
             photo = BytesIO()
             Image.new("RGB", (64, 48), "red").save(photo, format="JPEG")
-            upload = await client.put(
-                "/images", files={"file": ("photo.jpg", photo.getvalue(), "image/jpeg")}
-            )
             response = await client.post(
                 "/images",
-                params={
-                    "image_id": upload.json()["image_id"],
-                    "song_title": "bad guy",
-                    "song_artists": "Billie Eilish",
-                },
+                data={"song_title": "bad guy", "song_artists": "Billie Eilish"},
+                files={"file": ("photo.jpg", photo.getvalue(), "image/jpeg")},
             )
 
     assert edit.call_count == 1
