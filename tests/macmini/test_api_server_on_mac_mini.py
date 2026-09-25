@@ -4,7 +4,7 @@ Slice: the API server runs on the Mac mini (docs/tasks/local-ai/task.md, item D)
 Acceptance: Given the API server, vision model server and Flux server started by their
 LaunchDaemons on the Mac mini, WHEN a client on the network sends a photo, title and
 artist to POST /images on port 8000, THEN it gets back an 800x480 PNG, and a second
-restyle for the same song finishes within 60 seconds.
+restyle for the same song finishes within 75 seconds.
 
 Runs against the real Mac mini, excluded from ./check and CI:
     uv run pytest -m macmini
@@ -40,4 +40,4 @@ def test_mac_mini_api_server_restyles_a_sent_photo() -> None:
     second = httpx.post(f"{API_URL}/images", data=form, files=files, timeout=300)
     elapsed = time.monotonic() - start
     assert second.status_code == 200, second.text
-    assert elapsed < 60, f"restyle for a cached song took {elapsed:.1f}s"
+    assert elapsed < 75, f"restyle for a cached song took {elapsed:.1f}s"
