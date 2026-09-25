@@ -22,6 +22,7 @@ import respx
 from PIL import Image
 from vlm_fakes import VLM_CHAT, VLM_MODEL, is_aesthetic_request, mock_itunes
 
+from local_shazam.prompts import load_prompt
 from local_shazam.server import create_app
 
 SONG = "bad guy"
@@ -137,7 +138,12 @@ async def test_prompt_request_carries_photo_description_and_song_aesthetic(
 ) -> None:
     await frame.transform()
 
-    prompt_requests = [r for r in frame.openai_requests if not is_aesthetic_request(r)]
+    prompt_requests = [
+        r
+        for r in frame.openai_requests
+        if r["messages"][0]["role"] == "system"
+        and r["messages"][0]["content"] == load_prompt("flux_transform")
+    ]
     assert len(prompt_requests) == 1
     assert prompt_requests[0]["model"] == VLM_MODEL
     messages = json.dumps(prompt_requests[0]["messages"])
