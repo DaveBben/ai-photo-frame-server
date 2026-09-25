@@ -24,14 +24,6 @@ def _prepare_image_for_api(img: Image.Image) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
-async def _describe_image(client: OpenAIClient, img: Image.Image) -> str:
-    """Ask the vision model to describe the image."""
-    b64_data = _prepare_image_for_api(img)
-    return await client.describe_image(
-        b64_data, load_prompt("describe_image"), max_tokens=800
-    )
-
-
 async def get_aesthetic(
     openai_client: OpenAIClient,
     itunes_client: ItunesClient,
@@ -94,7 +86,11 @@ async def transform(
 ) -> bytes:
     """Caption the upright RGB photo, write the edit prompt from the caption and the song's aesthetic, send the photo and prompt to the image model, and return the PNG bytes it produced."""
     img = ImageOps.exif_transpose(image).convert("RGB")
-    description = await _describe_image(openai_client, img)
+    # The Flux server shrinks its input to 512 px, so one <=1024 px JPEG serves both models.
+    image_b64 = _prepare_image_for_api(img)
+    description = await openai_client.describe_image(
+        image_b64, load_prompt("describe_image"), max_tokens=800
+    )
     flux_prompt = await _generate_flux_prompt(
         openai_client,
         itunes_client,
@@ -103,7 +99,4 @@ async def transform(
         song_name,
         artist_name,
     )
-    buf = BytesIO()
-    img.save(buf, format=_JPEG, quality=95)
-    image_b64 = base64.b64encode(buf.getvalue()).decode()
     return await flux_client.generate_image(flux_prompt, image_b64)

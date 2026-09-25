@@ -14,7 +14,7 @@ class Settings(BaseSettings):
         vlm_base_url: Base URL of the vision model server's OpenAI chat API.
         server_host: Host address to bind the server to.
         server_port: Port number for the HTTP server.
-        data_dir: Directory holding stored images and the aesthetic cache.
+        data_dir: Directory holding the aesthetic cache.
     """
 
     model_config = SettingsConfigDict(
