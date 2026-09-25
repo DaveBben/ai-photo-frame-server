@@ -8,11 +8,19 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from PIL import Image
+from starlette.formparsers import MultiPartParser
 
 from local_shazam import pipeline
 from local_shazam.exceptions import ServiceError
 
 _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# Starlette writes any upload over 1 MB to a temporary file on disk. A spool size
+# of 0 keeps every upload in memory, so no photo touches the Mac mini's disk
+# (docs/adr/architecture/restyle-photos-in-memory-and-store-none.md).
+# ponytail: no body-size cap before the read; the route's own file.read() already
+# held the whole upload in memory, add a Content-Length check if that matters.
+MultiPartParser.spool_max_size = 0
 
 if TYPE_CHECKING:
     from local_shazam.aesthetic_cache import AestheticCache
