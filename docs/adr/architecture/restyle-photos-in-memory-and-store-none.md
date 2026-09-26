@@ -32,7 +32,7 @@ Before, every photo the Pi ever uploaded sat on the Mac mini's disk indefinitely
 
 - **Every restyle is about 16 seconds slower.** The vision model used to caption a photo once, at upload (16.5s measured), and every later restyle reused the caption stored in EXIF. Now it captions the photo on every request. A restyle for a song the server has seen goes from about 38s to about 55s, and a new song from 60 to 67s to about 77 to 84s. These are the earlier measurements added together, not measured end to end. If the wait matters, the Pi can store the caption text and send it back, as a later change.
 - **Memory is not disk-proof.** macOS can page process memory to its swap file, which FileVault-off leaves unencrypted. Nothing here prevents that.
-- **Logs and model servers are not audited.** This decision covers the API server's own writes. Whether `mlx_vlm.server` or the Flux server write inputs to disk is not established; checking their data and cache directories after a restyle would establish it.
+- **Logs and `mlx_vlm.server` are not audited.** This decision covers the API server's and the Flux server's own writes. The Flux server no longer writes the reference photo: it hands mflux the Pillow image in memory and keeps every upload out of Starlette's temp file (`tests/test_flux_server_no_disk.py`). Whether `mlx_vlm.server` writes inputs to disk is still not established; checking its data and cache directories after a restyle would establish it.
 - **The old client stops working.** `ai-photo-frame-client` calls `GET /images` and the old `POST /images`, and both break. It is retired.
 
 ## Alternatives rejected
