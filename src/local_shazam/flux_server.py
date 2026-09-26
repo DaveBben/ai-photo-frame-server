@@ -38,9 +38,9 @@ def _generate_png(
     """Run one generation from a reference image and return the result as PNG bytes."""
     # Any whole-number seed is valid; only its type is tested.
     seed = secrets.randbelow(2**31)  # pragma: no mutate
-    # mflux applies the EXIF Orientation tag to a Pillow image it is given; the
-    # reference has always reached the model unrotated, so drop the tag.
-    reference.info.pop("exif", None)
+    # mflux applies the Orientation tag, from EXIF or XMP, to a Pillow image it is
+    # given. The reference PNG it used to read carried neither, so drop both.
+    reference.info.clear()
     result = model.generate_image(
         seed=seed,
         prompt=prompt,

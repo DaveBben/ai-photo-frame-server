@@ -18,7 +18,7 @@ from typing import Any
 import anyio
 import httpx
 from openai import AsyncOpenAI
-from PIL import Image
+from PIL import Image, ImageOps
 
 from local_shazam.flux_server import create_app
 
@@ -59,7 +59,8 @@ class FakeModel:
                 "steps": num_inference_steps,
                 "guidance": guidance,
                 "size": (width, height),
-                "reference_size": image_paths[0].size,
+                # mflux applies the Orientation tag before the model sees the pixels.
+                "reference_size": ImageOps.exif_transpose(image_paths[0]).size,
             }
         )
         time.sleep(self.delay)
@@ -151,6 +152,22 @@ async def test_reference_is_shrunk_to_512_on_its_long_edge_and_never_enlarged() 
         _png_of(await _edit(client, _jpeg(300, 200)))
 
     assert [c["reference_size"] for c in model.calls[-2:]] == [(512, 384), (300, 200)]
+
+
+async def test_photo_turned_only_by_xmp_reaches_the_model_unrotated() -> None:
+    xmp = (
+        b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF'
+        b' xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description'
+        b' xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Orientation="6"/>'
+        b"</rdf:RDF></x:xmpmeta>"
+    )
+    buf = BytesIO()
+    Image.new("RGB", (1024, 768), (200, 120, 40)).save(buf, format="JPEG", xmp=xmp)
+    model = FakeModel()
+    async with _flux(model) as client:
+        _png_of(await _edit(client, buf.getvalue()))
+
+    assert model.calls[-1]["reference_size"] == (512, 384)
 
 
 # Row 5
