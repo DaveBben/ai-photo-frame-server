@@ -4,18 +4,24 @@ import asyncio
 import base64
 import os
 import secrets
-import tempfile
 import time
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from io import BytesIO
-from pathlib import Path
 from typing import Annotated, Any
 
 import uvicorn
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from PIL import Image
+from starlette.formparsers import MultiPartParser
+
+# Starlette writes any upload over 1 MB to a temporary file on disk. A spool size
+# of 0 keeps every upload in memory, so no photo touches the Mac mini's disk
+# (docs/adr/architecture/restyle-photos-in-memory-and-store-none.md).
+# ponytail: no body-size cap before the read; the route's own image.read() already
+# held the whole upload in memory, add a Content-Length check if that matters.
+MultiPartParser.spool_max_size = 0
 
 # MLX evaluates a graph only on the thread that built it, and the Mac mini has one GPU.
 _worker = ThreadPoolExecutor(max_workers=1)
@@ -30,21 +36,21 @@ def _generate_png(
     model: Any, prompt: str, reference: Image.Image, width: int, height: int
 ) -> bytes:
     """Run one generation from a reference image and return the result as PNG bytes."""
-    with tempfile.TemporaryDirectory() as tmp:
-        # The file name sets the format; mutating its case changes nothing.
-        path = Path(tmp) / "reference.png"  # pragma: no mutate
-        reference.save(path)
-        # Any whole-number seed is valid; only its type is tested.
-        seed = secrets.randbelow(2**31)  # pragma: no mutate
-        result = model.generate_image(
-            seed=seed,
-            prompt=prompt,
-            num_inference_steps=3,
-            width=width,
-            height=height,
-            guidance=1.0,
-            image_paths=[path],
-        )
+    # Any whole-number seed is valid; only its type is tested.
+    seed = secrets.randbelow(2**31)  # pragma: no mutate
+    # mflux applies the EXIF Orientation tag to a Pillow image it is given; the
+    # reference has always reached the model unrotated, so drop the tag.
+    reference.info.pop("exif", None)
+    result = model.generate_image(
+        seed=seed,
+        prompt=prompt,
+        num_inference_steps=3,
+        width=width,
+        height=height,
+        guidance=1.0,
+        # mflux loads a Pillow image as given (mflux/utils/image_util.py:160), so no file is written.
+        image_paths=[reference],
+    )
     buf = BytesIO()
     result.image.save(buf, format="PNG")  # pragma: no mutate
     return buf.getvalue()

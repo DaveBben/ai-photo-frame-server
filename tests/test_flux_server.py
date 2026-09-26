@@ -12,7 +12,6 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from io import BytesIO
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -48,13 +47,11 @@ class FakeModel:
         height: int,
         width: int,
         guidance: float,
-        image_paths: list[Path],
+        image_paths: list[Image.Image],
     ) -> SimpleNamespace:
         with self._counter:
             self.active += 1
             self.max_active = max(self.max_active, self.active)
-        with Image.open(image_paths[0]) as reference:
-            reference_size = reference.size
         self.calls.append(
             {
                 "seed": seed,
@@ -62,7 +59,7 @@ class FakeModel:
                 "steps": num_inference_steps,
                 "guidance": guidance,
                 "size": (width, height),
-                "reference_size": reference_size,
+                "reference_size": image_paths[0].size,
             }
         )
         time.sleep(self.delay)
